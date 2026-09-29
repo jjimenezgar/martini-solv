@@ -32,8 +32,20 @@ class BuildConfig:
     box_distance_nm: float = 1.2
     des_pairs_per_nm3: float = 3.2
     seed: int = 2026
-    elastic: bool = True
+
+    # Protein model controls mirror the useful MartiniSurf protein controls.
+    molecule_name: str = "Protein"
+    merge_chains: str = "A"
+    dssp: bool = True
+    go: bool = True
+    go_eps: float = 9.415
+    elastic: bool = False
     elastic_force: int = 700
+    position_restraints: str = "backbone"
+    position_restraint_force: float = 1000.0
+    maxwarn: int = 1
+    martinize_extra_args: list[str] = field(default_factory=list)
+
     solutes: list[Solute] = field(default_factory=list)
 
     def validate(self) -> None:
@@ -49,11 +61,21 @@ class BuildConfig:
             raise ValueError("Check salt concentration and box distance")
         if not 0 < self.des_pairs_per_nm3 <= 4:
             raise ValueError("DES pair density is outside the supported initial packing range")
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,15}", self.molecule_name):
+            raise ValueError("Molecule name must start with a letter and contain only letters, numbers or underscores")
+        if self.position_restraints not in {"backbone", "all", "none"}:
+            raise ValueError("Position restraints must be backbone, all or none")
+        if not 0 <= self.maxwarn <= 20:
+            raise ValueError("martinize2 max warnings must be between 0 and 20")
+        if self.go_eps < 0:
+            raise ValueError("Go epsilon must be non-negative")
         if not 100 <= self.elastic_force <= 1500:
             raise ValueError("Elastic network force constant must be 100–1500 kJ/mol/nm²")
+        if self.position_restraint_force <= 0:
+            raise ValueError("Position-restraint force constant must be positive")
         if len({s.name.upper() for s in self.solutes}) != len(self.solutes):
             raise ValueError("Molecule names must be unique")
-        reserved = {"W", "NA", "CL", "CHOL", "UREA", "MOLECULE_0"}
+        reserved = {"W", "NA", "CL", "CHOL", "UREA", "MOLECULE_0", self.molecule_name.upper()}
         if any(s.name.upper() in reserved for s in self.solutes):
             raise ValueError("Additional molecule name conflicts with a solvent, ion or protein type")
         for s in self.solutes:
