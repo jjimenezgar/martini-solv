@@ -377,16 +377,18 @@ def _packaged_topology_text(system: Path) -> str:
         raise FileNotFoundError("system.top is missing from the built system")
     local_itps = {path.name for path in system.glob("*.itp")}
     lines: list[str] = []
-    pattern = re.compile(r'^(\s*#include\s+["<])([^">]+)([">].*)
     for raw in top.read_text(errors="replace").splitlines():
-        match = pattern.match(raw)
-        if match:
-            name = Path(match.group(2)).name
-            if name in local_itps:
-                raw = f'{match.group(1)}system_itp/{name}{match.group(3)}'
+        stripped = raw.strip()
+        if stripped.startswith("#include"):
+            first_quote = raw.find('"')
+            second_quote = raw.find('"', first_quote + 1) if first_quote >= 0 else -1
+            if first_quote >= 0 and second_quote > first_quote:
+                target = raw[first_quote + 1:second_quote]
+                name = Path(target).name
+                if name in local_itps:
+                    raw = raw[:first_quote + 1] + "system_itp/" + name + raw[second_quote:]
         lines.append(raw)
     return "\n".join(lines) + "\n"
-
 
 def _package_readme(has_short_md: bool) -> str:
     short_md_text = (
