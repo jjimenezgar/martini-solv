@@ -144,6 +144,30 @@ def _insert(work: Path, current: Path, template: Path, count: int, name: str, se
     return out
 
 
+def _pack_reline(work: Path, boxed: Path, templates: list[tuple[Path, int]], seed: int, log: Path) -> None:
+    """Pack all DES components at once, keeping the protein fixed in the box."""
+    box = [float(v) for v in boxed.read_text().splitlines()[-1].split()[:3]]
+    if len(box) != 3 or min(box) <= 0:
+        raise ValueError("Invalid GRO box")
+    blocks = ["tolerance 2.5", "filetype pdb", "output packed.pdb", f"seed {seed}", ""]
+    run(["gmx", "editconf", "-f", str(boxed), "-o", "boxed.pdb"], work, log)
+    blocks += ["structure boxed.pdb", "  number 1", "  resnumbers 1",
+               "  fixed 0. 0. 0. 0. 0. 0.", "end structure", ""]
+    for index, (template, count) in enumerate(templates):
+        if not count:
+            continue
+        pdb_name = f"pack_template_{index}.pdb"
+        run(["gmx", "editconf", "-f", str(template), "-o", pdb_name], work, log)
+        bounds = " ".join(f"{length * 10:.3f}" for length in box)
+        blocks += [f"structure {pdb_name}", f"  number {count}", "  resnumbers 3",
+                   f"  inside box 0. 0. 0. {bounds}", "end structure", ""]
+    run(["packmol"], work, log, stdin="\n".join(blocks) + "\n")
+    run(["gmx", "editconf", "-f", "packed.pdb", "-o", "system.gro", "-box", *map(str, box)], work, log)
+    expected = _gro_count(boxed) + sum(_gro_count(template) * count for template, count in templates)
+    if _gro_count(work / "system.gro") != expected:
+        raise RuntimeError("Packmol output atom count does not match the requested composition")
+
+
 def _topology(work: Path, protein: list[tuple[str, int]], species: list[tuple[str, int]]) -> None:
     generated = sorted(work.glob("*.itp"))
     protein_itps = [p for p in generated if p.name not in FF_NAMES and p.name not in {"choline.itp", "urea.itp"}]
@@ -185,7 +209,7 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         raise ValueError("Provide an existing protein PDB file")
     if not any(row.startswith("ATOM  ") for row in pdb.read_text(errors="replace").splitlines()):
         raise ValueError("PDB does not contain protein ATOM records")
-    for program in ("martinize2", "gmx", "insane" if config.solvent == "water" else "gmx"):
+    for program in ("martinize2", "gmx", "insane" if config.solvent == "water" else "packmol"):
         if not shutil.which(program):
             raise RuntimeError(f"Missing executable: {program}")
     output = output.resolve()
@@ -216,11 +240,11 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
                 raise ValueError(f"Charged additional molecule {spec.name} requires explicit counterions; not yet supported")
             templates.append((spec, gro, itp))
         current = work / "boxed.gro"
-        for index, (spec, gro, _) in enumerate(templates):
-            current = _insert(work, current, gro, spec.count, spec.name, config.seed + index, log)
         species = [(_molecule_type(itp), spec.count) for spec, _, itp in templates]
         composition = {}
         if config.solvent == "water":
+            for index, (spec, gro, _) in enumerate(templates):
+                current = _insert(work, current, gro, spec.count, spec.name, config.seed + index, log)
             run(["insane", "-f", str(current), "-o", "system.gro", "-p", "insane.top", "-pbc", "cubic",
                  "-d", "0", "-sol", "W", "-salt", str(config.salt_m), "-charge", "auto"], work, log)
             _normalize_insane_ions(work / "system.gro")
@@ -240,13 +264,14 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             # The published choline/urea coordinates are packaged in the cited DES model repository.
             (work / "chloride.gro").write_text("Chloride\n1\n    1CL     CL    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
             (work / "water.gro").write_text("Water\n1\n    1W       W    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
-            for index, (name, template) in enumerate((
+            to_pack = [(gro, spec.count) for spec, gro, _ in templates]
+            for name, template in (
                 ("CHOL", "choline.gro"), ("UREA", "urea.gro"), ("CL", "chloride.gro"), ("W", "water.gro")
-            )):
+            ):
                 count = int(counts[name])
-                current = _insert(work, current, work / template, count, name, config.seed + 100 + index, log)
+                to_pack.append((work / template, count))
                 species.append((name, count))
-            shutil.copy2(current, work / "system.gro")
+            _pack_reline(work, current, to_pack, config.seed, log)
             composition = counts
         _topology(work, protein, species)
         (work / "minimization.mdp").write_text(
