@@ -49,6 +49,9 @@ class BuildConfig:
             raise ValueError("DES pair density is outside the supported initial packing range")
         if len({s.name.upper() for s in self.solutes}) != len(self.solutes):
             raise ValueError("Molecule names must be unique")
+        reserved = {"W", "NA", "CL", "CHOL", "UREA", "MOLECULE_0"}
+        if any(s.name.upper() in reserved for s in self.solutes):
+            raise ValueError("Additional molecule name conflicts with a solvent, ion or protein type")
         for s in self.solutes:
             s.validate()
 

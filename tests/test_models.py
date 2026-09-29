@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions
+from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions, _name_molecule_type
 from martini_solv.models import BuildConfig, reline_counts
 
 
@@ -42,3 +42,11 @@ class TestModels(unittest.TestCase):
             lines = gro.read_text().splitlines()
             self.assertEqual([(row[5:10].strip(), row[10:15].strip()) for row in lines[2:4]],
                              [("NA", "NA"), ("CL", "CL")])
+
+    def test_mapper_molecule_type_is_renamed(self):
+        with TemporaryDirectory() as directory:
+            source, target = Path(directory) / "original.itp", Path(directory) / "BENZ.itp"
+            source.write_text("[ moleculetype ]\n; name nrexcl\nres 1\n[ atoms ]\n1 C1 1 res C1 1 0\n")
+            _name_molecule_type(source, target, "BENZ")
+            self.assertIn("BENZ 1", target.read_text())
+            self.assertIn("1 C1 1 res C1 1 0", target.read_text())

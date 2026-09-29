@@ -118,6 +118,24 @@ def _molecule_type(itp: Path) -> str:
     raise ValueError(f"No [ moleculetype ] in {itp}")
 
 
+def _name_molecule_type(itp: Path, destination: Path, name: str) -> None:
+    """Martini Mapper calls every generated type 'res'; make it unique per species."""
+    inside, replaced, lines = False, False, []
+    for raw in itp.read_text().splitlines():
+        line = raw.split(";", 1)[0].strip()
+        if line.startswith("["):
+            inside = bool(re.match(r"\[\s*moleculetype\s*\]", line, re.I))
+        elif inside and line and not replaced:
+            parts = raw.split(maxsplit=1)
+            raw = name + (" " + parts[1] if len(parts) > 1 else "")
+            replaced = True
+            inside = False
+        lines.append(raw)
+    if not replaced:
+        raise ValueError(f"No molecule type found in {itp}")
+    destination.write_text("\n".join(lines) + "\n")
+
+
 def _itp_net_charge(name: Path) -> float:
     total = 0.0
     inside = False
@@ -204,7 +222,7 @@ def _map_solute(work: Path, name: str, smiles: str, log: Path) -> tuple[Path, Pa
     itp = out / f"{name}.itp"
     if not gro.is_file() or not itp.is_file():
         raise RuntimeError(f"Martini Mapper did not produce {gro.name} and {itp.name}")
-    shutil.copy2(itp, work / itp.name)
+    _name_molecule_type(itp, work / itp.name, name)
     return gro, work / itp.name
 
 
