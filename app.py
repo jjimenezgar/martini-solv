@@ -90,6 +90,23 @@ for stage, defaults in DEFAULT_STAGE_SETTINGS.items():
     st.session_state.setdefault(f"short_md_{stage}_time", float(defaults["time_ns"]))
 
 
+BUILD_INPUT_KEYS = {
+    "project_name", "pdb_id", "molecule_name", "merge_chain_count", "dssp", "go",
+    "go_eps", "position_restraints", "elastic", "elastic_force", "maxwarn",
+    "martinize_extra", "solvent_ui", "box_distance", "salt", "water_fraction",
+    "new_smiles", "new_name", "new_copies",
+}
+
+
+def _invalidate_build_outputs() -> None:
+    """Prevent stale water/Reline systems from being shown after configuration changes."""
+    for key in [
+        "result_dir", "result_manifest", "short_md_work_dir", "short_md_log",
+        "short_md_stage_results",
+    ]:
+        st.session_state.pop(key, None)
+
+
 def _widget_key(name: str) -> str:
     return f"_widget_{name}"
 
@@ -103,12 +120,20 @@ def _prime_widget(name: str) -> str:
 
 
 def _store_widget(name: str) -> None:
-    """Persist widget state even while that workflow page is not rendered."""
-    st.session_state[name] = st.session_state.get(_widget_key(name))
+    """Persist widget state and invalidate any build made from older settings."""
+    previous = st.session_state.get(name)
+    current = st.session_state.get(_widget_key(name))
+    st.session_state[name] = current
+    if name in BUILD_INPUT_KEYS and previous != current:
+        _invalidate_build_outputs()
 
 
 def _store_pdb_id() -> None:
-    st.session_state["pdb_id"] = str(st.session_state.get(_widget_key("pdb_id"), "")).strip().upper()
+    previous = st.session_state.get("pdb_id")
+    current = str(st.session_state.get(_widget_key("pdb_id"), "")).strip().upper()
+    st.session_state["pdb_id"] = current
+    if previous != current:
+        _invalidate_build_outputs()
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -231,6 +256,7 @@ def _solute_generator() -> None:
                     {"name": species.name, "smiles": species.smiles, "count": species.count,
                      "gro": str(gro), "itp": str(itp)}
                 )
+                _invalidate_build_outputs()
                 st.success(f"{species.name}: Martini Mapper generated the coarse-grained model.")
             except (ValueError, RuntimeError, OSError) as exc:
                 st.error(str(exc))
@@ -241,6 +267,7 @@ def _solute_generator() -> None:
                 title.markdown(f"**{row['name']}** · {row['count']} copies · `{row['smiles']}`")
                 if action.button("Remove", key=f"remove_{index}", use_container_width=True):
                     st.session_state.solutes.pop(index)
+                    _invalidate_build_outputs()
                     st.rerun()
 
                 gro = Path(row["gro"])
@@ -375,7 +402,10 @@ if step == "Structure":
         )
         uploaded = st.file_uploader("Protein structure", type=["pdb"], key="structure_upload")
         if uploaded is not None:
-            st.session_state.pdb_bytes = uploaded.getvalue()
+            uploaded_bytes = uploaded.getvalue()
+            if st.session_state.get("pdb_bytes") != uploaded_bytes:
+                _invalidate_build_outputs()
+            st.session_state.pdb_bytes = uploaded_bytes
             st.session_state.pdb_name = uploaded.name
             st.session_state.pdb_source_id = ""
         st.text_input(
@@ -529,6 +559,24 @@ elif step == "Review & Build":
         summary_c.metric("Solvent", "Water" if config.solvent == "water" else "Reline")
         summary_d.metric("Free molecules", sum(spec.count for spec in config.solutes))
 
+        if config.solvent == "reline":
+            if config.water_fraction > 0:
+                st.info(
+                    f"Environment selected: Wet Reline · ChCl:urea = 1:2 · "
+                    f"target water mole fraction = {config.water_fraction:.2f}. "
+                    "A new build is required after changing the environment."
+                )
+            else:
+                st.info(
+                    "Environment selected: dry Reline · ChCl:urea = 1:2 · no water. "
+                    "A new build is required after changing the environment."
+                )
+        else:
+            st.info(
+                f"Environment selected: Martini water · NaCl = {config.salt_m:.2f} M. "
+                "A new build is required after changing the environment."
+            )
+
         left, right = st.columns([1.15, 0.85], gap="large")
         with right:
             build_clicked = st.button("Build system", type="primary", use_container_width=True, disabled=not valid_pdb)
@@ -623,8 +671,21 @@ elif step == "Review & Build":
 
         if built.is_dir() and (built / "manifest.json").is_file():
             st.success("System generated and checked with GROMACS.")
+            manifest = json.loads((built / "manifest.json").read_text())
+            composition = manifest.get("composition") or {}
+            if config.solvent == "reline" and composition:
+                comp_cols = st.columns(4)
+                comp_cols[0].metric("Choline", int(composition.get("CHOL", 0)))
+                comp_cols[1].metric("Urea", int(composition.get("UREA", 0)))
+                comp_cols[2].metric("Chloride", int(composition.get("CL", 0)))
+                comp_cols[3].metric("Water beads", int(composition.get("W", 0)))
+                actual_water = composition.get("x_water_actual")
+                if actual_water is not None:
+                    st.caption(
+                        f"Built Reline composition · ChCl:urea = 1:2 · "
+                        f"actual water mole fraction ≈ {float(actual_water):.3f}."
+                    )
             with st.expander("Build details"):
-                manifest = json.loads((built / "manifest.json").read_text())
                 rows = [
                     {"Setting": "Protein model", "Value": "GōMartini" if config.go else "Martini 3"},
                     {"Setting": "DSSP", "Value": "On" if config.dssp else "Off"},

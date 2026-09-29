@@ -14,8 +14,8 @@ BG = "#07131C"
 TRAJ_BG = "#0E0D11"
 
 WATER_RESN = {"W", "WF", "SW", "TW", "SOL"}
-CHOLINE_RESN = {"CHOL"}
-UREA_RESN = {"UREA"}
+CHOLINE_RESN = {"CHOL", "CHO"}
+UREA_RESN = {"UREA", "URE"}
 ION_RESN = {"NA", "CL", "ION", "K", "CA", "MG", "ZN", "LI", "RB", "CS", "BA", "SR", "F", "BR", "I"}
 
 
@@ -166,9 +166,9 @@ def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
         upper = resn.upper()
         if upper in WATER_RESN:
             groups["water"].add(resn)
-        elif upper in CHOLINE_RESN:
+        elif upper in CHOLINE_RESN or {"N1", "OH"}.issubset(names):
             groups["choline"].add(resn)
-        elif upper in UREA_RESN:
+        elif upper in UREA_RESN or {"N1", "UP", "UN"}.issubset(names):
             groups["urea"].add(resn)
         elif upper in ION_RESN:
             groups["ions"].add(resn)
@@ -281,6 +281,14 @@ def render_build_viewer(
     <div class="viewer-shell step4">
       <div id="viewer" class="viewer"></div>
       <div class="viewer-badge">Visual quality check</div>
+      <div class="viewer-legend">
+        <span><i style="background:{BLUE}"></i>Protein</span>
+        <span><i style="background:#B0BEC5"></i>Water</span>
+        <span><i style="background:#7E57C2"></i>Choline</span>
+        <span><i style="background:#FFB74D"></i>Urea</span>
+        <span><i style="background:limegreen"></i>Ions</span>
+        <span><i style="background:yellow"></i>Free molecule</span>
+      </div>
     </div>
     <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
     <script>
@@ -336,6 +344,14 @@ def render_build_viewer(
         background:rgba(7,19,28,.78);color:#F3F7FA;
         font:700 12px/1.2 sans-serif;pointer-events:none;
       }}
+      .viewer-legend {{
+        position:absolute;right:14px;bottom:14px;display:flex;gap:10px;flex-wrap:wrap;
+        max-width:70%;padding:7px 10px;border:1px solid rgba(116,152,170,.25);
+        border-radius:12px;background:rgba(7,19,28,.78);color:#F3F7FA;
+        font:600 11px/1.2 sans-serif;pointer-events:none;
+      }}
+      .viewer-legend span {{display:flex;align-items:center;gap:5px;}}
+      .viewer-legend i {{width:9px;height:9px;border-radius:50%;display:inline-block;}}
     </style>
     """
     components.html(script, height=height + 2)
@@ -403,6 +419,14 @@ def render_trajectory(
     <div class="viewer-shell short-md">
       <div id="viewer" class="viewer"></div>
       <div class="viewer-badge">Production trajectory</div>
+      <div class="viewer-legend">
+        <span><i style="background:{BLUE}"></i>Protein</span>
+        <span><i style="background:#B0BEC5"></i>Water</span>
+        <span><i style="background:#7E57C2"></i>Choline</span>
+        <span><i style="background:#FFB74D"></i>Urea</span>
+        <span><i style="background:limegreen"></i>Ions</span>
+        <span><i style="background:yellow"></i>Free molecule</span>
+      </div>
     </div>
     <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
     <script>
@@ -448,6 +472,14 @@ def render_trajectory(
         background:rgba(14,13,17,.78);color:#F5FAFA;
         font:700 12px/1.2 sans-serif;pointer-events:none;
       }}
+      .viewer-legend {{
+        position:absolute;right:14px;bottom:14px;display:flex;gap:10px;flex-wrap:wrap;
+        max-width:70%;padding:7px 10px;border:1px solid rgba(66,199,213,.22);
+        border-radius:12px;background:rgba(14,13,17,.78);color:#F5FAFA;
+        font:600 11px/1.2 sans-serif;pointer-events:none;
+      }}
+      .viewer-legend span {{display:flex;align-items:center;gap:5px;}}
+      .viewer-legend i {{width:9px;height:9px;border-radius:50%;display:inline-block;}}
     </style>
     """
     components.html(script, height=height + 2)
