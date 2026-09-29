@@ -26,7 +26,7 @@ For reline (ChCl:urea 1:2) at requested water mole fraction 0.10:
 python -m martini_solv.cli --pdb 1ubq.pdb --out builds/ubiquitin_reline --solvent reline --salt 0 --water-fraction 0.10
 ```
 
-For optional freely dissolved small molecules: add rows in Streamlit or use `--solute NAME:SMILES:COUNT` multiple times. The environment installs [Martini Mapper](https://github.com/eliobaby/Martini_Mapper) from the same source used by [MartiniSurf](https://github.com/jjimenezgar/MartiniSurf/blob/master/requirements.txt). The builder assigns each generated `[ moleculetype ]` a unique user name so multiple species can coexist. Only neutral additional molecules are currently accepted. A generated topology must be scientifically reviewed for chemical accuracy and applicability to the chosen solvent. The core verifies its `.gro`/`.itp` outputs and fails explicitly if unavailable.
+The Streamlit workflow follows **Structure → Model → Environment → Review & Build → Short MD**. In Environment, the free-molecule generator accepts SMILES, a molecule name and a copy count. It shows a 2D structure, calls Martini Mapper and previews generated CG beads. Multiple species can be added or removed. There are no anchor, linker, surface or orientation controls. The CLI accepts `--solute NAME:SMILES:COUNT` multiple times. The environment installs [Martini Mapper](https://github.com/eliobaby/Martini_Mapper) from the same source used by [MartiniSurf](https://github.com/jjimenezgar/MartiniSurf/blob/master/requirements.txt). The builder assigns each generated `[ moleculetype ]` a unique user name so multiple species can coexist. Only neutral additional molecules are currently accepted. A generated topology must be scientifically reviewed for chemical accuracy and applicability to the chosen solvent. The core verifies its `.gro`/`.itp` outputs and fails explicitly if unavailable.
 
 ## Solvent models and limitations
 
@@ -44,7 +44,7 @@ Input PDBs must already have a sensible backbone and chain assignment. The origi
 - `martini_solv/cli.py`: same builder on a workstation or HPC login node.
 - `tests/`: quick validation of composition and parameters (`python -m unittest discover -s tests -v`).
 
-Each build writes its input PDB, actual settings, pinned upstream URLs and `build.log`. A failed build remains in a `.incomplete` folder for diagnosis. The Streamlit process currently runs the build synchronously; deploy it on a machine with the scientific tools and enough CPU/memory. A persistent job queue and optional short MD are follow-up work, not part of this first usable prototype.
+Each build writes its input PDB, actual settings, pinned upstream URLs and `build.log`. A failed build remains in a `.incomplete` folder for diagnosis. The optional Short MD page runs energy minimization and 1–100 ps NVT at 300 K, with up to four CPU threads and a five-minute timeout per GROMACS command. Its logs, MDP, trajectory and final structure are included in the download. It is a bounded sanity check, not an equilibrated or production simulation. The Streamlit process currently runs jobs synchronously; deploy it on a machine with enough CPU/memory for larger systems.
 
 The project deliberately excludes surfaces, immobilization, linkers, deposition and production simulations. This project extracts a small, self-contained protein-preparation workflow inspired by MartiniSurf and reimplements the orchestration layer without its surface workflow.
 

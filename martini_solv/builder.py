@@ -250,8 +250,11 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         sources = download_models(work, config.solvent == "reline")
         if importlib.util.find_spec("mdtraj") is None:
             raise RuntimeError("mdtraj is required for protein secondary structure")
-        run(["martinize2", "-f", "protein_clean.pdb", "-x", "protein_cg.pdb", "-o", "protein.top",
-             "-ff", "martini3001", "-dssp", "-ignh", "-elastic", "-ef", "700", "-el", "0.5", "-eu", "0.9"], work, log)
+        martinize = ["martinize2", "-f", "protein_clean.pdb", "-x", "protein_cg.pdb", "-o", "protein.top",
+                     "-ff", "martini3001", "-dssp", "-ignh"]
+        if config.elastic:
+            martinize += ["-elastic", "-ef", str(config.elastic_force), "-el", "0.5", "-eu", "0.9"]
+        run(martinize, work, log)
         protein = _molecules(work / "protein.top")
         if config.solvent == "reline" and abs(_protein_net_charge(work)) > 0.001:
             raise ValueError("DES mode currently requires an electrically neutral protein; no counterion correction is implemented")

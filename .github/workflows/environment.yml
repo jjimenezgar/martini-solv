@@ -8,6 +8,9 @@ on:
       - packages.txt
       - runtime.txt
       - martini_solv/builder.py
+      - martini_solv/models.py
+      - martini_solv/short_md.py
+      - app.py
       - .github/workflows/environment.yml
 jobs:
   install-and-smoke:
@@ -102,3 +105,5 @@ jobs:
             exit 1
           }
           test -s /tmp/cloud-ubq/minimization.tpr
+          python -c "from pathlib import Path; from martini_solv.short_md import run_short_md; run_short_md(Path('/tmp/cloud-ubq'), time_ps=1.0)"
+          test -s /tmp/cloud-ubq/short_md/nvt.gro

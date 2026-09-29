@@ -32,6 +32,8 @@ class BuildConfig:
     box_distance_nm: float = 1.2
     des_pairs_per_nm3: float = 3.2
     seed: int = 2026
+    elastic: bool = True
+    elastic_force: int = 700
     solutes: list[Solute] = field(default_factory=list)
 
     def validate(self) -> None:
@@ -47,6 +49,8 @@ class BuildConfig:
             raise ValueError("Check salt concentration and box distance")
         if not 0 < self.des_pairs_per_nm3 <= 4:
             raise ValueError("DES pair density is outside the supported initial packing range")
+        if not 100 <= self.elastic_force <= 1500:
+            raise ValueError("Elastic network force constant must be 100–1500 kJ/mol/nm²")
         if len({s.name.upper() for s in self.solutes}) != len(self.solutes):
             raise ValueError("Molecule names must be unique")
         reserved = {"W", "NA", "CL", "CHOL", "UREA", "MOLECULE_0"}
