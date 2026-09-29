@@ -6,7 +6,7 @@ An independent, small protein system builder inspired by [MartiniSurf](https://g
 
 ## Install and run
 
-Linux/Conda, GROMACS, martinize2, INSANE, mdtraj and Martini Mapper are installed from the **single** `environment.yml`. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. This environment still needs a full scientific integration run on a Linux machine:
+Linux/Conda, GROMACS, martinize2, INSANE, mdtraj and Martini Mapper are installed from the **single** `environment.yml`. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. INSANE currently imports `pkg_resources`, so setuptools is constrained below 81. This environment still needs a full scientific integration run on a Linux machine:
 
 ```bash
 mamba env create -f environment.yml
