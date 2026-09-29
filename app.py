@@ -30,6 +30,7 @@ from martini_solv.theme import STYLE
 
 STEPS = ["Structure", "Model", "Environment", "Review & Build", "Short MD"]
 CHAIN_LABELS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+APP_STATE_VERSION = 2
 
 st.set_page_config(page_title="MartiniSolv", page_icon="MS", layout="wide", initial_sidebar_state="expanded")
 st.markdown(STYLE, unsafe_allow_html=True)
@@ -53,6 +54,10 @@ DEFAULTS = {
     "salt": 0.15,
     "water_fraction": 0.0,
     "solutes": [],
+    "new_smiles": "",
+    "new_name": "",
+    "new_copies": 1,
+    "build_view": "Martini protein",
     "short_md_output_tag": "Protein MD",
     "short_md_xtc_write_every_ps": DEFAULT_XTC_WRITE_EVERY_PS,
     "short_md_grompp_maxwarn": DEFAULT_GROMPP_MAXWARN,
@@ -60,17 +65,42 @@ DEFAULTS = {
     "short_md_view_stage": "production",
     "short_md_view_stride": 1,
 }
-for key, value in DEFAULTS.items():
-    st.session_state.setdefault(key, value)
+if st.session_state.get("_martinisolv_state_version") != APP_STATE_VERSION:
+    # One-time migration: make the requested defaults visible even in browser
+    # sessions created before this release.
+    for key, value in DEFAULTS.items():
+        if key != "active_step":
+            st.session_state[key] = value
+    st.session_state["_martinisolv_state_version"] = APP_STATE_VERSION
+else:
+    for key, value in DEFAULTS.items():
+        st.session_state.setdefault(key, value)
+
 for stage, defaults in DEFAULT_STAGE_SETTINGS.items():
     st.session_state.setdefault(f"short_md_run_{stage}", bool(defaults["enabled"]))
     st.session_state.setdefault(f"short_md_{stage}_dt", float(defaults["dt_ps"]))
     st.session_state.setdefault(f"short_md_{stage}_time", float(defaults["time_ns"]))
 
 
-def _sync_pdb_id_from_widget() -> None:
-    """Keep the chosen PDB ID even when the Structure widget is not rendered."""
-    st.session_state["pdb_id"] = str(st.session_state.get("_pdb_id_input", "")).strip().upper()
+def _widget_key(name: str) -> str:
+    return f"_widget_{name}"
+
+
+def _prime_widget(name: str) -> str:
+    """Restore a widget from persistent workflow state when its page reappears."""
+    key = _widget_key(name)
+    if key not in st.session_state:
+        st.session_state[key] = st.session_state.get(name)
+    return key
+
+
+def _store_widget(name: str) -> None:
+    """Persist widget state even while that workflow page is not rendered."""
+    st.session_state[name] = st.session_state.get(_widget_key(name))
+
+
+def _store_pdb_id() -> None:
+    st.session_state["pdb_id"] = str(st.session_state.get(_widget_key("pdb_id"), "")).strip().upper()
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -138,9 +168,19 @@ def _solute_generator() -> None:
     with st.expander("Free molecule generator · SMILES", expanded=True):
         st.caption("Add freely dissolved Martini 3 molecules. No linker, anchor or orientation logic is used.")
         left, middle, right = st.columns([2.0, 0.8, 0.65])
-        smiles = left.text_input("SMILES", key="new_smiles", placeholder="CCO")
-        name = middle.text_input("Molecule name", key="new_name", placeholder="ETOH")
-        copies = right.number_input("Copies", min_value=1, max_value=1000, value=1, key="new_copies")
+        smiles = left.text_input(
+            "SMILES", key=_prime_widget("new_smiles"), placeholder="CCO",
+            on_change=_store_widget, args=("new_smiles",),
+        )
+        name = middle.text_input(
+            "Molecule name", key=_prime_widget("new_name"), placeholder="ETOH",
+            on_change=_store_widget, args=("new_name",),
+        )
+        copies = right.number_input(
+            "Copies", min_value=1, max_value=1000,
+            key=_prime_widget("new_copies"),
+            on_change=_store_widget, args=("new_copies",),
+        )
         if smiles:
             try:
                 _show_molecule(smiles)
@@ -272,22 +312,22 @@ if step == "Structure":
     left, right = st.columns([0.9, 1.1], gap="large")
     with left:
         st.markdown('<div class="ms-panel-title">Structure input</div>', unsafe_allow_html=True)
-        st.text_input("Project name", key="project_name")
+        st.text_input(
+            "Project name", key=_prime_widget("project_name"),
+            on_change=_store_widget, args=("project_name",),
+        )
         uploaded = st.file_uploader("Protein structure", type=["pdb"], key="structure_upload")
         if uploaded is not None:
             st.session_state.pdb_bytes = uploaded.getvalue()
             st.session_state.pdb_name = uploaded.name
             st.session_state.pdb_source_id = ""
-        if "_pdb_id_input" not in st.session_state:
-            st.session_state["_pdb_id_input"] = str(st.session_state.get("pdb_id", "1UBQ"))
         st.text_input(
             "PDB ID",
-            key="_pdb_id_input",
-            on_change=_sync_pdb_id_from_widget,
+            key=_prime_widget("pdb_id"),
+            on_change=_store_pdb_id,
             help="Enter a four-character RCSB PDB ID, for example 1UBQ.",
         )
-        # Keep the persistent value synchronized on the first render too.
-        _sync_pdb_id_from_widget()
+        _store_pdb_id()
         with st.expander("Optional auxiliary files"):
             st.caption("No surface/linker files are needed in MartiniSolv.")
 
@@ -316,42 +356,74 @@ if step == "Structure":
 elif step == "Model":
     st.markdown('<div class="ms-panel-title">Model decisions</div>', unsafe_allow_html=True)
     labels = _chain_labels()
-    st.text_input("Molecule name", key="molecule_name")
+    st.text_input(
+        "Molecule name", key=_prime_widget("molecule_name"),
+        on_change=_store_widget, args=("molecule_name",),
+    )
     max_count = max(1, len(labels))
     if int(st.session_state.merge_chain_count) > max_count:
         st.session_state.merge_chain_count = max_count
     options = list(range(1, max_count + 1))
+    merge_key = _prime_widget("merge_chain_count")
+    if int(st.session_state.get(merge_key, 1)) not in options:
+        st.session_state[merge_key] = int(st.session_state.merge_chain_count)
     st.selectbox(
         "Merge chains",
         options,
-        key="merge_chain_count",
+        key=merge_key,
+        on_change=_store_widget,
+        args=("merge_chain_count",),
         format_func=lambda value: f"{value} chain" if value == 1 else f"{value} chains",
     )
     c1, c2 = st.columns(2)
-    c1.toggle("DSSP", key="dssp", help="Use DSSP secondary-structure assignment in martinize2.")
-    c2.toggle("GōMartini", key="go", help="Enable the martinize2 Gō model.")
-    st.number_input("Go_Epsilon", min_value=0.0, step=0.001, format="%.3f", key="go_eps", disabled=not st.session_state.go)
+    c1.toggle(
+        "DSSP", key=_prime_widget("dssp"),
+        on_change=_store_widget, args=("dssp",),
+        help="Use DSSP secondary-structure assignment in martinize2.",
+    )
+    c2.toggle(
+        "GōMartini", key=_prime_widget("go"),
+        on_change=_store_widget, args=("go",),
+        help="Enable the martinize2 Gō model.",
+    )
+    st.number_input(
+        "Go_Epsilon", min_value=0.0, step=0.001, format="%.3f",
+        key=_prime_widget("go_eps"),
+        on_change=_store_widget, args=("go_eps",),
+        disabled=not bool(st.session_state.get(_widget_key("go"), st.session_state.go)),
+    )
     st.segmented_control(
         "Position restraints",
         ["backbone", "all", "none"],
-        key="position_restraints",
-        default=st.session_state.position_restraints,
+        key=_prime_widget("position_restraints"),
+        on_change=_store_widget,
+        args=("position_restraints",),
     )
     with st.expander("Advanced model options"):
         a, b = st.columns(2)
-        a.toggle("Elastic network", key="elastic")
+        a.toggle(
+            "Elastic network", key=_prime_widget("elastic"),
+            on_change=_store_widget, args=("elastic",),
+        )
         b.number_input(
             "Elastic force constant (kJ/mol/nm²)",
             min_value=100,
             max_value=1500,
             step=50,
-            key="elastic_force",
-            disabled=not st.session_state.elastic,
+            key=_prime_widget("elastic_force"),
+            on_change=_store_widget,
+            args=("elastic_force",),
+            disabled=not bool(st.session_state.get(_widget_key("elastic"), st.session_state.elastic)),
         )
-        st.number_input("martinize2 max warnings", min_value=0, max_value=20, step=1, key="maxwarn")
+        st.number_input(
+            "martinize2 max warnings", min_value=0, max_value=20, step=1,
+            key=_prime_widget("maxwarn"),
+            on_change=_store_widget, args=("maxwarn",),
+        )
         st.text_area(
             "Extra martinize2 args",
-            key="martinize_extra",
+            key=_prime_widget("martinize_extra"),
+            on_change=_store_widget, args=("martinize_extra",),
             height=80,
             help="Advanced users only. Arguments are parsed safely without a shell.",
         )
@@ -359,13 +431,30 @@ elif step == "Model":
 elif step == "Environment":
     st.markdown('<div class="ms-panel-title">Environment</div>', unsafe_allow_html=True)
     a, b = st.columns(2)
-    a.selectbox("Solvent", ["Water", "Reline · ChCl:urea 1:2"], key="solvent_ui")
-    b.number_input("Protein-to-box distance (nm)", min_value=0.5, max_value=5.0, step=0.1, key="box_distance")
-    if st.session_state.solvent_ui == "Water":
-        st.number_input("NaCl concentration (M)", min_value=0.0, max_value=2.0, step=0.05, key="salt")
+    a.selectbox(
+        "Solvent", ["Water", "Reline · ChCl:urea 1:2"],
+        key=_prime_widget("solvent_ui"),
+        on_change=_store_widget, args=("solvent_ui",),
+    )
+    b.number_input(
+        "Protein-to-box distance (nm)", min_value=0.5, max_value=5.0, step=0.1,
+        key=_prime_widget("box_distance"),
+        on_change=_store_widget, args=("box_distance",),
+    )
+    active_solvent = str(st.session_state.get(_widget_key("solvent_ui"), st.session_state.solvent_ui))
+    if active_solvent == "Water":
+        st.number_input(
+            "NaCl concentration (M)", min_value=0.0, max_value=2.0, step=0.05,
+            key=_prime_widget("salt"),
+            on_change=_store_widget, args=("salt",),
+        )
         st.caption("INSANE solvates the coarse-grained protein with Martini 3 water and ions.")
     else:
-        st.slider("Water mole fraction in reline", min_value=0.0, max_value=0.4, step=0.01, key="water_fraction")
+        st.slider(
+            "Water mole fraction in reline", min_value=0.0, max_value=0.4, step=0.01,
+            key=_prime_widget("water_fraction"),
+            on_change=_store_widget, args=("water_fraction",),
+        )
         st.caption("Reline uses ChCl:urea 1:2. Added NaCl is not enabled for this path.")
     _solute_generator()
 
@@ -422,7 +511,15 @@ elif step == "Review & Build":
                 if system_gro.is_file():
                     view_options.append("Full solvated system")
                 if view_options:
-                    selected = st.selectbox("Structure to view", view_options, label_visibility="collapsed")
+                    if st.session_state.build_view not in view_options:
+                        st.session_state.build_view = view_options[0]
+                    view_key = _prime_widget("build_view")
+                    if st.session_state.get(view_key) not in view_options:
+                        st.session_state[view_key] = st.session_state.build_view
+                    selected = st.selectbox(
+                        "Structure to view", view_options, label_visibility="collapsed",
+                        key=view_key, on_change=_store_widget, args=("build_view",),
+                    )
                     render_cg_structure(protein_cg if selected == "Martini protein" else system_gro, height=620)
                 else:
                     st.info("No generated structure is available for preview.")
@@ -463,33 +560,52 @@ elif step == "Short MD":
         st.info("Build the system in Review & Build first.")
     else:
         top_a, top_b, top_c = st.columns(3)
-        top_a.text_input("Simulation name", key="short_md_output_tag")
+        top_a.text_input(
+            "Simulation name", key=_prime_widget("short_md_output_tag"),
+            on_change=_store_widget, args=("short_md_output_tag",),
+        )
         top_b.number_input(
             "XTC write every (ps)", min_value=0.001, step=1.0, format="%.4f",
-            key="short_md_xtc_write_every_ps",
+            key=_prime_widget("short_md_xtc_write_every_ps"),
+            on_change=_store_widget, args=("short_md_xtc_write_every_ps",),
         )
-        top_c.number_input("GROMPP max warnings", min_value=0, step=1, key="short_md_grompp_maxwarn")
+        top_c.number_input(
+            "GROMPP max warnings", min_value=0, step=1,
+            key=_prime_widget("short_md_grompp_maxwarn"),
+            on_change=_store_widget, args=("short_md_grompp_maxwarn",),
+        )
 
         with st.expander("Short MD protocol", expanded=True):
             for stage in STAGE_ORDER:
                 defaults = DEFAULT_STAGE_SETTINGS[stage]
                 cols = st.columns([0.85, 1, 1])
-                cols[0].toggle(stage.upper() if stage != "production" else "Production", key=f"short_md_run_{stage}")
+                run_name = f"short_md_run_{stage}"
+                cols[0].toggle(
+                    stage.upper() if stage != "production" else "Production",
+                    key=_prime_widget(run_name),
+                    on_change=_store_widget, args=(run_name,),
+                )
                 cols[1].number_input(
                     f"{stage.upper() if stage != 'production' else 'Production'} timestep (ps)",
                     min_value=0.000001,
                     step=float(defaults["dt_ps"]),
                     format="%.4f",
-                    key=f"short_md_{stage}_dt",
+                    key=_prime_widget(f"short_md_{stage}_dt"),
+                    on_change=_store_widget, args=(f"short_md_{stage}_dt",),
                 )
                 cols[2].number_input(
                     f"{stage.upper() if stage != 'production' else 'Production'} time (ns)",
                     min_value=0.000001,
                     step=float(defaults["time_ns"]),
                     format="%.4f",
-                    key=f"short_md_{stage}_time",
+                    key=_prime_widget(f"short_md_{stage}_time"),
+                    on_change=_store_widget, args=(f"short_md_{stage}_time",),
                 )
-            st.number_input("CPU threads", min_value=1, max_value=4, step=1, key="short_md_threads")
+            st.number_input(
+                "CPU threads", min_value=1, max_value=4, step=1,
+                key=_prime_widget("short_md_threads"),
+                on_change=_store_widget, args=("short_md_threads",),
+            )
 
         md_config = _short_md_config()
         errors = validate_stage_order(selected_stages(md_config))
@@ -527,10 +643,16 @@ elif step == "Short MD":
                 controls[0].selectbox(
                     "Stage to view",
                     stage_names,
-                    key="short_md_view_stage",
+                    key=_prime_widget("short_md_view_stage"),
+                    on_change=_store_widget,
+                    args=("short_md_view_stage",),
                     format_func=lambda value: value.upper() if value != "production" else "Production",
                 )
-                controls[1].number_input("Frame stride", min_value=1, step=1, key="short_md_view_stride")
+                controls[1].number_input(
+                    "Frame stride", min_value=1, step=1,
+                    key=_prime_widget("short_md_view_stride"),
+                    on_change=_store_widget, args=("short_md_view_stride",),
+                )
 
                 selected = next(row for row in trajectory_rows if row["name"] == st.session_state.short_md_view_stage)
                 gro = Path(selected["gro"])
