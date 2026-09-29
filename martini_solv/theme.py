@@ -12,6 +12,8 @@ STYLE = """
   --ms-text: #F4F5F7;
   --ms-muted: #9DA3AE;
   --ms-teal: #42C7D5;
+  --ms-blue: #42C7D5;
+  --ms-blue-light: #8FEAF2;
   --ms-pink: #FF4FA3;
   --ms-pink-hover: #FF69B2;
 }
@@ -21,8 +23,11 @@ STYLE = """
 }
 .block-container {
   max-width: 1440px;
-  padding-top: 2rem;
+  padding-top: 4.25rem;
   padding-bottom: 3rem;
+}
+section[data-testid="stMain"] > div {
+  overflow: visible;
 }
 [data-testid="stSidebar"] {
   background: #07080C;
@@ -45,7 +50,10 @@ STYLE = """
   color: var(--ms-text);
   font-size: 1.08rem;
   font-weight: 830;
-  margin: .15rem 0 1rem;
+  line-height: 1.35;
+  padding-top: .15rem;
+  margin: .05rem 0 1rem;
+  overflow: visible;
 }
 .ms-empty-preview {
   min-height: 430px;
@@ -154,6 +162,7 @@ label, p, span {
 }
 @media (max-width: 1050px) {
   .block-container {
+    padding-top: 4.75rem;
     padding-left: 1rem;
     padding-right: 1rem;
   }

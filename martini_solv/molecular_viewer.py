@@ -7,8 +7,8 @@ from pathlib import Path
 import streamlit.components.v1 as components
 
 
-PINK = "#FF4FA3"
-PINK_LIGHT = "#FF9DCC"
+BLUE = "#42C7D5"
+BLUE_LIGHT = "#8FEAF2"
 BG = "#07131C"
 
 
@@ -27,10 +27,10 @@ def _viewer_html(data: str, fmt: str, *, height: int, trajectory: bool = False) 
     <script>
       const viewer = $3Dmol.createViewer(document.getElementById("viewer"), {{backgroundColor: "{BG}"}});
       {loader}
-      viewer.setStyle({{}}, {{sphere: {{radius: 0.18, color: "{PINK_LIGHT}"}}}});
-      viewer.setStyle({{atom: "BB"}}, {{sphere: {{radius: 0.22, color: "{PINK}"}}}});
-      viewer.setStyle({{atom: /^BB\\d+$/}}, {{sphere: {{radius: 0.22, color: "{PINK}"}}}});
-      viewer.setStyle({{atom: /^SC/}}, {{sphere: {{radius: 0.18, color: "{PINK_LIGHT}"}}}});
+      viewer.setStyle({{}}, {{sphere: {{radius: 0.18, color: "{BLUE_LIGHT}"}}}});
+      viewer.setStyle({{atom: "BB"}}, {{sphere: {{radius: 0.22, color: "{BLUE}"}}}});
+      viewer.setStyle({{atom: /^BB\\d+$/}}, {{sphere: {{radius: 0.22, color: "{BLUE}"}}}});
+      viewer.setStyle({{atom: /^SC/}}, {{sphere: {{radius: 0.18, color: "{BLUE_LIGHT}"}}}});
       viewer.setStyle({{resn: ["W","SW","TW","SOL"]}}, {{sphere: {{radius: 0.08, color: "lightgray", opacity: 0.38}}}});
       viewer.setStyle({{resn: ["NA","CL"]}}, {{sphere: {{radius: 0.12, colorscheme: "Jmol"}}}});
       viewer.zoomTo();
@@ -51,14 +51,14 @@ def _viewer_html(data: str, fmt: str, *, height: int, trajectory: bool = False) 
 
 
 def render_structure_preview(pdb_text: str, height: int = 430) -> None:
-    """Render an atomistic PDB as the pink cartoon used by MartiniSurf."""
+    """Render an atomistic PDB in the MartiniSolv blue accent."""
     script = f"""
     <div class="viewer-shell"><div id="viewer" class="viewer"></div></div>
     <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
     <script>
       const viewer = $3Dmol.createViewer(document.getElementById("viewer"), {{backgroundColor: "{BG}"}});
       viewer.addModel({json.dumps(pdb_text)}, "pdb");
-      viewer.setStyle({{}}, {{cartoon: {{color: "{PINK}"}}}});
+      viewer.setStyle({{}}, {{cartoon: {{color: "{BLUE}"}}}});
       viewer.addStyle({{hetflag: true}}, {{stick: {{radius: 0.16, colorscheme: "Jmol"}}}});
       viewer.zoomTo();
       viewer.render();
