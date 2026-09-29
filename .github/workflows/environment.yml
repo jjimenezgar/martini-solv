@@ -43,3 +43,23 @@ jobs:
           test -s /tmp/ubq-system/system.gro
           test -s /tmp/ubq-system/system.top
           test -s /tmp/ubq-system/minimization.tpr
+      - name: Launch Streamlit health check
+        shell: micromamba-shell {0}
+        run: |
+          streamlit run app.py --server.headless true --server.port 8501 > /tmp/streamlit.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" || true' EXIT
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://localhost:8501/_stcore/health; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/streamlit.log
+          exit 1
+      - name: Build a small hydrated reline system
+        shell: micromamba-shell {0}
+        run: |
+          python -m martini_solv.cli --pdb /tmp/1ubq.pdb --out /tmp/ubq-reline --solvent reline --salt 0 --water-fraction 0.10 --box-distance 0.7 || {
+            tail -n 120 /tmp/ubq-reline.incomplete/build.log
+            exit 1
+          }
+          test -s /tmp/ubq-reline/minimization.tpr

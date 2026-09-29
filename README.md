@@ -50,7 +50,7 @@ The project deliberately excludes surfaces, immobilization, linkers, deposition 
 
 ## Test status
 
-The pure-Python tests are runnable without GROMACS. An end-to-end scientific smoke run requires the Conda environment and upstream model downloads. Consult the build log and check `gmx grompp` before using any generated files.
+The pure-Python tests are runnable without GROMACS. GitHub Actions creates the actual Conda environment, tests Martini Mapper output, starts Streamlit, and builds a 1UBQ water example through `gmx grompp`. It also checks a small hydrated reline system. Consult the build log and check `gmx grompp` before using any generated files.
 
 ### Streamlit Community Cloud
 
