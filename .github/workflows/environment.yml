@@ -63,3 +63,12 @@ jobs:
             exit 1
           }
           test -s /tmp/ubq-reline/minimization.tpr
+      - name: Build with two SMILES-derived solutes
+        shell: micromamba-shell {0}
+        run: |
+          python -m martini_solv.cli --pdb /tmp/1ubq.pdb --out /tmp/ubq-solutes --solvent water --salt 0.15 \
+            --solute BENZ:c1ccccc1:2 --solute ETOH:CCO:2 || {
+            tail -n 120 /tmp/ubq-solutes.incomplete/build.log
+            exit 1
+          }
+          test -s /tmp/ubq-solutes/minimization.tpr
