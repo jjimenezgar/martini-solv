@@ -262,6 +262,35 @@ def _insert_after_forcefield(lines: list[str], additions: list[str]) -> list[str
     return lines[:insert_at] + additions + lines[insert_at:]
 
 
+def _relocate_go_includes(lines: list[str], work: Path, go_enabled: bool) -> list[str]:
+    """Place Gō global atom-type/nonbonded directives immediately after the FF.
+
+    GROMACS requires [atomtypes]/[nonbond_params] to be read before any
+    [moleculetype]. Martini 3 ion/solvent ITPs already contain molecule types,
+    so the Gō files must precede those includes as well as Protein.itp.
+    """
+    go_names = ("go_atomtypes.itp", "go_nbparams.itp")
+    stripped: list[str] = []
+    for raw in lines:
+        match = re.match(r'\s*#include\s+["<]([^">]+)[">]', raw)
+        if match and Path(match.group(1)).name in go_names:
+            continue
+        stripped.append(raw)
+
+    if not go_enabled:
+        return stripped
+
+    missing = [name for name in go_names if not (work / name).is_file()]
+    if missing:
+        raise RuntimeError(
+            "GōMartini was requested but martinize2 did not generate: "
+            + ", ".join(missing)
+        )
+
+    go_lines = [f'#include "{name}"' for name in go_names]
+    return _insert_after_forcefield(stripped, go_lines)
+
+
 def _topology(
     work: Path,
     protein: list[tuple[str, int]],
@@ -279,11 +308,14 @@ def _topology(
 
     included = _included_itps(prefix)
 
-    # Ensure the Martini 3 force field is present. The main force field must be
-    # loaded before molecule definitions and before any auxiliary solvent types.
+    # Ensure the Martini 3 force field is present first.
     if FF_NAMES[0] not in included:
         prefix = [f'#include "{FF_NAMES[0]}"', *prefix]
-        included.add(FF_NAMES[0])
+
+    # Gō atomtypes/nonbonded parameters are global directives and MUST be read
+    # before ions, solvents, Protein.itp or any other moleculetype definition.
+    prefix = _relocate_go_includes(prefix, work, go_enabled)
+    included = _included_itps(prefix)
 
     auxiliary = []
     for name in FF_NAMES[1:]:
@@ -295,7 +327,15 @@ def _topology(
             if name not in included:
                 auxiliary.append(f'#include "{name}"')
                 included.add(name)
-    prefix = _insert_after_forcefield(prefix, auxiliary)
+    if auxiliary:
+        last_global = -1
+        global_names = {FF_NAMES[0], "go_atomtypes.itp", "go_nbparams.itp"}
+        for index, raw in enumerate(prefix):
+            match = re.match(r'\s*#include\s+["<]([^">]+)[">]', raw)
+            if match and Path(match.group(1)).name in global_names:
+                last_global = index
+        insert_at = last_global + 1 if last_global >= 0 else 0
+        prefix = prefix[:insert_at] + auxiliary + prefix[insert_at:]
 
     # protein.top normally includes the protein ITP. Add only the actual
     # molecule ITP as a fallback; do not blindly include Gō auxiliary files,
