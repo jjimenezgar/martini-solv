@@ -28,7 +28,13 @@ def run(args: list[str], cwd: Path, log: Path, stdin: str | None = None) -> None
     with log.open("a") as fh:
         fh.write("$ " + " ".join(args) + "\n")
         fh.flush()
-        done = subprocess.run(args, cwd=cwd, input=stdin, text=True, stdout=fh, stderr=subprocess.STDOUT, check=False)
+        # Packmol rewinds its input; a Python subprocess pipe is not seekable.
+        input_path = cwd / "packmol.inp"
+        if stdin is not None:
+            input_path.write_text(stdin)
+        with input_path.open() if stdin is not None else open("/dev/null") as input_file:
+            done = subprocess.run(args, cwd=cwd, stdin=input_file, text=True,
+                                  stdout=fh, stderr=subprocess.STDOUT, check=False)
         if done.returncode:
             raise RuntimeError(f"Command failed (exit {done.returncode}): {args[0]}. See {log}")
 
