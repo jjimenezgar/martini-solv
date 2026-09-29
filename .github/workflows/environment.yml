@@ -3,7 +3,10 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - environment.yml
+      - conda/environment.yml
+      - requirements.txt
+      - packages.txt
+      - runtime.txt
       - martini_solv/builder.py
       - .github/workflows/environment.yml
 jobs:
@@ -14,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: mamba-org/setup-micromamba@v3
         with:
-          environment-file: environment.yml
+          environment-file: conda/environment.yml
           cache-environment: true
       - name: Confirm scientific executables and Python packages
         shell: micromamba-shell {0}
@@ -72,3 +75,30 @@ jobs:
             exit 1
           }
           test -s /tmp/ubq-solutes/minimization.tpr
+  streamlit-cloud-dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Cloud system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $(cat packages.txt)
+      - name: Install Cloud Python packages
+        run: python -m pip install -r requirements.txt
+      - name: Verify tools and app
+        run: |
+          python -c "import streamlit, rdkit, mdtraj, vermouth, insane, martini_mapper"
+          martinize2 --version
+          gmx --version
+          command -v packmol
+          python -m unittest discover -s tests -v
+          curl -fLsS https://files.rcsb.org/download/1UBQ.pdb -o /tmp/1ubq.pdb
+          python -m martini_solv.cli --pdb /tmp/1ubq.pdb --out /tmp/cloud-ubq --solvent water --salt 0.15 || {
+            tail -n 120 /tmp/cloud-ubq.incomplete/build.log
+            exit 1
+          }
+          test -s /tmp/cloud-ubq/minimization.tpr

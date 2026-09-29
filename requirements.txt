@@ -1,0 +1,7 @@
+streamlit==1.61.1
+rdkit==2026.3.5
+mdtraj
+vermouth
+insane
+setuptools<81
+git+https://github.com/eliobaby/Martini_Mapper.git@3fed95480a5da1c846466afbc899706bf4f60191

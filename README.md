@@ -6,10 +6,10 @@ An independent, small protein system builder inspired by [MartiniSurf](https://g
 
 ## Install and run
 
-Linux/Conda, GROMACS, Packmol, martinize2, INSANE, mdtraj and Martini Mapper are installed from the **single** `environment.yml`. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. INSANE currently imports `pkg_resources`, so setuptools is constrained below 81. The Linux environment is exercised by GitHub Actions:
+For local use, GROMACS, Packmol, martinize2, INSANE, mdtraj and Martini Mapper are installed from `conda/environment.yml`. On Streamlit Community Cloud, `requirements.txt` installs Python packages and `packages.txt` installs GROMACS and Packmol through apt, following the same approach as MartiniSurf. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. INSANE currently imports `pkg_resources`, so setuptools is constrained below 81. Both installation routes are exercised by GitHub Actions:
 
 ```bash
-mamba env create -f environment.yml
+mamba env create -f conda/environment.yml
 conda activate martini-solv
 streamlit run app.py
 ```
@@ -50,8 +50,8 @@ The project deliberately excludes surfaces, immobilization, linkers, deposition 
 
 ## Test status
 
-The pure-Python tests are runnable without GROMACS. GitHub Actions creates the actual Conda environment, tests Martini Mapper output, starts Streamlit, and builds 1UBQ in water, hydrated reline, and water with two different SMILES-derived solutes. All three system builds must pass `gmx grompp` with zero warnings. Consult the build log and inspect structures before using generated files for scientific work.
+The pure-Python tests are runnable without GROMACS. GitHub Actions creates the Conda environment, tests Martini Mapper output, starts Streamlit, and builds 1UBQ in water, hydrated reline, and water with two different SMILES-derived solutes. A separate job checks the Cloud-style apt/pip dependencies and a water build. All system builds must pass `gmx grompp` with zero warnings. Consult the build log and inspect structures before using generated files for scientific work.
 
 ### Streamlit Community Cloud
 
-Select `app.py`, the `main` branch and **Python 3.11**. Community Cloud recognizes root `environment.yml` and installs its Conda/Python dependencies; there is deliberately no competing `requirements.txt`. Builds download the model files from pinned public GitHub commits, so outgoing internet access is required. Community Cloud has finite resources and may interrupt costly preparation jobs; this first version runs builds synchronously, so a self-hosted Streamlit service or background worker is preferable for larger proteins or dense DES boxes. A green UI or passing Python CI does not mean a scientific build has succeeded.
+Select `app.py`, the `main` branch and **Python 3.12**. Community Cloud installs root `requirements.txt` with pip and root `packages.txt` with apt; the Conda recipe resides in `conda/` for local/HPC use and does not trigger Cloud's slower Conda solver. Builds download the model files from pinned public GitHub commits, so outgoing internet access is required. Community Cloud has finite resources and may interrupt costly preparation jobs; this first version runs builds synchronously, so a self-hosted Streamlit service or background worker is preferable for larger proteins or dense DES boxes. A green UI or passing Python CI does not mean a scientific build has succeeded.
