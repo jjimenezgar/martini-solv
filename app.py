@@ -22,6 +22,7 @@ from martini_solv.short_md import (
     StageSettings,
     archive,
     run_short_md,
+    run_short_md_analysis,
     selected_stages,
     validate_stage_order,
 )
@@ -294,7 +295,7 @@ def _solute_generator() -> None:
                                     "z (nm)": bead["z (nm)"],
                                 })
                             st.markdown("##### Bead mapping")
-                            st.dataframe(table, hide_index=True, use_container_width=True)
+                            st.table(table)
                             st.caption(
                                 "This is the Martini topology that will be inserted as a free molecule "
                                 "in the simulation box."
@@ -361,6 +362,7 @@ def _store_short_md_result(result) -> None:
             "gro": str(stage.gro),
             "tpr": str(stage.tpr),
             "xtc": str(stage.xtc or ""),
+            "edr": str(stage.edr or ""),
             "elapsed_s": stage.elapsed_s,
             "ns_day": stage.ns_day,
         }
@@ -369,6 +371,95 @@ def _store_short_md_result(result) -> None:
     available = [row["name"] for row in st.session_state.short_md_stage_results if row["xtc"]]
     if available:
         st.session_state.short_md_view_stage = "production" if "production" in available else available[-1]
+
+
+def _render_stage_analysis(selected: dict[str, object]) -> None:
+    """Render analyses for exactly the stage selected in 'Stage to view'."""
+    stage = str(selected["name"])
+    signature = (
+        stage,
+        str(selected.get("tpr") or ""),
+        str(selected.get("xtc") or ""),
+        str(selected.get("edr") or ""),
+    )
+    st.markdown("#### Analysis")
+    st.caption(
+        f"Analyses use the complete **{stage.upper()}** trajectory selected above. "
+        "RMSD/RMSF use protein BB beads; Density is the total simulation-box mass density."
+    )
+    a, b, d = st.columns(3)
+    requested = None
+    if a.button("Analyse RMSD", key=f"analysis_rmsd_{stage}", use_container_width=True):
+        requested = "rmsd"
+    if b.button("Analyse RMSF", key=f"analysis_rmsf_{stage}", use_container_width=True):
+        requested = "rmsf"
+    if d.button("Analyse Density", key=f"analysis_density_{stage}", use_container_width=True):
+        requested = "density"
+
+    if requested:
+        tpr = Path(str(selected.get("tpr") or ""))
+        xtc_text = str(selected.get("xtc") or "")
+        edr_text = str(selected.get("edr") or "")
+        xtc = Path(xtc_text) if xtc_text else None
+        edr = Path(edr_text) if edr_text else None
+        work = Path(str(st.session_state.get("short_md_work_dir", "."))) / "analysis" / stage
+        with st.spinner(f"Calculating {requested.upper()} for {stage.upper()}…"):
+            try:
+                result = run_short_md_analysis(requested, tpr, xtc, edr, work)
+            except Exception as exc:
+                st.session_state["short_md_analysis_signature"] = signature
+                st.session_state["short_md_analysis_error"] = str(exc)
+                st.session_state["short_md_analysis_result"] = {}
+            else:
+                values = [value for _, value in result.points]
+                st.session_state["short_md_analysis_signature"] = signature
+                st.session_state["short_md_analysis_error"] = ""
+                st.session_state["short_md_analysis_result"] = {
+                    "kind": result.kind,
+                    "x_label": result.x_label,
+                    "y_label": result.y_label,
+                    "points": result.points,
+                    "mean": sum(values) / len(values),
+                    "maximum": max(values),
+                    "minimum": min(values),
+                    "output_path": str(result.output_path),
+                }
+
+    if st.session_state.get("short_md_analysis_signature") != signature:
+        return
+    error = str(st.session_state.get("short_md_analysis_error") or "")
+    if error:
+        st.error(error)
+        return
+    result = st.session_state.get("short_md_analysis_result") or {}
+    if not result:
+        return
+
+    kind = str(result["kind"]).upper()
+    metrics = st.columns(3)
+    metrics[0].metric("Analysis", kind)
+    if kind == "DENSITY":
+        metrics[1].metric("Mean density", f"{float(result['mean']):.1f} kg/m³")
+        metrics[2].metric("Range", f"{float(result['minimum']):.1f}–{float(result['maximum']):.1f}")
+    else:
+        metrics[1].metric("Mean", f"{float(result['mean']):.3f} nm")
+        metrics[2].metric("Maximum", f"{float(result['maximum']):.3f} nm")
+
+    rows = [
+        {str(result["x_label"]): x, str(result["y_label"]): y}
+        for x, y in result["points"]
+    ]
+    st.line_chart(rows, x=str(result["x_label"]), y=str(result["y_label"]), height=320)
+    output = Path(str(result["output_path"]))
+    if output.is_file():
+        st.download_button(
+            "Download XVG data",
+            output.read_bytes(),
+            file_name=output.name,
+            mime="text/plain",
+            key=f"download_analysis_{stage}_{result['kind']}",
+            use_container_width=True,
+        )
 
 
 def _reset_build() -> None:
@@ -542,7 +633,10 @@ elif step == "Environment":
             key=_prime_widget("water_fraction"),
             on_change=_store_widget, args=("water_fraction",),
         )
-        st.caption("Reline uses ChCl:urea 1:2. Added NaCl is not enabled for this path.")
+        st.caption(
+            "Reline uses ChCl:urea 1:2. Initial packing is estimated from the experimental "
+            "density 1.20 g/cm³. Added NaCl is not enabled for this path."
+        )
     _solute_generator()
 
 elif step == "Review & Build":
@@ -683,6 +777,7 @@ elif step == "Review & Build":
                 if actual_water is not None:
                     st.caption(
                         f"Built Reline composition · ChCl:urea = 1:2 · "
+                        f"target dry density = {float(composition.get('target_density_g_cm3', 1.20)):.2f} g/cm³ · "
                         f"actual water mole fraction ≈ {float(actual_water):.3f}."
                     )
             with st.expander("Build details"):
@@ -865,6 +960,8 @@ elif step == "Short MD":
                         )
                     except Exception as exc:
                         st.warning(f"Trajectory preview is unavailable: {exc}")
+
+                _render_stage_analysis(selected)
 
             st.download_button(
                 "Download system and Short MD files",
