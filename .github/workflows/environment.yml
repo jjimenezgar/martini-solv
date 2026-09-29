@@ -105,5 +105,17 @@ jobs:
             exit 1
           }
           test -s /tmp/cloud-ubq/minimization.tpr
+          python - <<'PY'
+          from pathlib import Path
+          from scipy.spatial import cKDTree
+          lines = (Path('/tmp/cloud-ubq') / 'system.gro').read_text().splitlines()
+          n = int(lines[1])
+          atoms = lines[2:2+n]
+          xyz = [[float(row[i:i+8]) for i in (20, 28, 36)] for row in atoms]
+          pairs = sorted(cKDTree(xyz).query_pairs(0.08))
+          print('Overlapping bead pairs (<0.08 nm):', len(pairs))
+          for i, j in pairs[:25]:
+              print(i, atoms[i][:20], j, atoms[j][:20])
+          PY
           python -c "from pathlib import Path; from martini_solv.short_md import run_short_md; run_short_md(Path('/tmp/cloud-ubq'), time_ps=1.0)"
           test -s /tmp/cloud-ubq/short_md/nvt.gro
