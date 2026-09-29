@@ -12,7 +12,7 @@ import streamlit as st
 
 from martini_solv.builder import _map_solute, build
 from martini_solv.models import BuildConfig, Solute
-from martini_solv.molecular_viewer import render_build_viewer, render_structure_preview, render_trajectory
+from martini_solv.molecular_viewer import render_build_viewer, render_free_molecule_mapping, render_structure_preview, render_trajectory
 from martini_solv.short_md import (
     DEFAULT_GROMPP_MAXWARN,
     DEFAULT_STAGE_SETTINGS,
@@ -172,6 +172,29 @@ def _show_molecule(smiles: str) -> None:
         st.image(Draw.MolToImage(molecule, size=(460, 280)), caption="2D structure from SMILES")
 
 
+def _itp_bead_types(path: Path) -> dict[int, str]:
+    """Read Martini bead types from an ITP [ atoms ] section."""
+    rows: dict[int, str] = {}
+    if not path.is_file():
+        return rows
+    section = ""
+    for raw in path.read_text(errors="replace").splitlines():
+        line = raw.split(";", 1)[0].strip()
+        if line.startswith("[") and "]" in line:
+            section = line.strip("[]").strip().lower()
+            continue
+        if section != "atoms" or not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            rows[int(parts[0])] = parts[1]
+        except ValueError:
+            continue
+    return rows
+
+
 def _solute_generator() -> None:
     with st.expander("Free molecule generator · SMILES", expanded=True):
         st.caption("Add freely dissolved Martini 3 molecules. No linker, anchor or orientation logic is used.")
@@ -219,10 +242,36 @@ def _solute_generator() -> None:
                 if action.button("Remove", key=f"remove_{index}", use_container_width=True):
                     st.session_state.solutes.pop(index)
                     st.rerun()
+
                 gro = Path(row["gro"])
+                itp = Path(row["itp"])
                 if gro.is_file():
-                    with st.expander(f"Preview {row['name']} CG beads"):
-                        _show_mapping(gro)
+                    with st.expander(f"Martini topology preview · {row['name']}", expanded=True):
+                        preview_col, beads_col = st.columns([1.35, 1], gap="large")
+                        with preview_col:
+                            bead_rows = render_free_molecule_mapping(gro, height=360)
+                            st.caption(
+                                "Generated coarse-grained topology. Bead labels start at 1, "
+                                "matching the topology table."
+                            )
+                        with beads_col:
+                            bead_types = _itp_bead_types(itp)
+                            table = []
+                            for bead_index, bead in enumerate(bead_rows, start=1):
+                                table.append({
+                                    "Bead": bead["Bead"],
+                                    "Martini type": bead_types.get(bead_index, "—"),
+                                    "Residue": bead["Residue"],
+                                    "x (nm)": bead["x (nm)"],
+                                    "y (nm)": bead["y (nm)"],
+                                    "z (nm)": bead["z (nm)"],
+                                })
+                            st.markdown("##### Bead mapping")
+                            st.dataframe(table, hide_index=True, use_container_width=True)
+                            st.caption(
+                                "This is the Martini topology that will be inserted as a free molecule "
+                                "in the simulation box."
+                            )
 
 
 def _chain_labels() -> list[str]:
