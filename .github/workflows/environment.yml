@@ -32,3 +32,14 @@ jobs:
       - name: Python tests
         shell: micromamba-shell {0}
         run: python -m unittest discover -s tests -v
+      - name: Build 1UBQ in Martini water and verify GROMACS input
+        shell: micromamba-shell {0}
+        run: |
+          curl -fLsS https://files.rcsb.org/download/1UBQ.pdb -o /tmp/1ubq.pdb
+          python -m martini_solv.cli --pdb /tmp/1ubq.pdb --out /tmp/ubq-system --solvent water --salt 0.15 || {
+            tail -n 120 /tmp/ubq-system.incomplete/build.log
+            exit 1
+          }
+          test -s /tmp/ubq-system/system.gro
+          test -s /tmp/ubq-system/system.top
+          test -s /tmp/ubq-system/minimization.tpr
