@@ -16,6 +16,8 @@ STYLE = """
   --ms-blue-light: #8FEAF2;
   --ms-pink: #FF4FA3;
   --ms-pink-hover: #FF69B2;
+  --ms-primary: var(--ms-blue);
+  --ms-primary-hover: #69D7E2;
 }
 .stApp {
   background: var(--ms-bg);
@@ -135,15 +137,15 @@ div[data-testid="stNumberInput"] button {
   border-color: var(--ms-teal) !important;
 }
 .stButton > button[kind="primary"] {
-  background: var(--ms-pink) !important;
-  border-color: var(--ms-pink) !important;
-  color: #090A0F !important;
+  background: var(--ms-primary) !important;
+  border-color: var(--ms-primary) !important;
+  color: #07131C !important;
   font-weight: 850 !important;
-  box-shadow: 0 8px 22px rgba(255,79,163,.18);
+  box-shadow: 0 8px 22px rgba(66,199,213,.18);
 }
 .stButton > button[kind="primary"]:hover {
-  background: var(--ms-pink-hover) !important;
-  border-color: var(--ms-pink-hover) !important;
+  background: var(--ms-primary-hover) !important;
+  border-color: var(--ms-primary-hover) !important;
 }
 div[data-testid="stToggle"] [role="switch"][aria-checked="true"] {
   background-color: var(--ms-teal) !important;
