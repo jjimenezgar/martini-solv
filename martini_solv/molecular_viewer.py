@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import streamlit.components.v1 as components
@@ -10,44 +11,10 @@ import streamlit.components.v1 as components
 BLUE = "#42C7D5"
 BLUE_LIGHT = "#8FEAF2"
 BG = "#07131C"
+TRAJ_BG = "#0E0D11"
 
-
-def _viewer_html(data: str, fmt: str, *, height: int, trajectory: bool = False) -> str:
-    loader = (
-        f"viewer.addModelsAsFrames({json.dumps(data)}, {json.dumps(fmt)});"
-        if trajectory
-        else f"viewer.addModel({json.dumps(data)}, {json.dumps(fmt)});"
-    )
-    animation = """
-      viewer.animate({loop: "forward", interval: 160});
-    """ if trajectory else ""
-    return f"""
-    <div class="viewer-shell"><div id="viewer" class="viewer"></div></div>
-    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
-    <script>
-      const viewer = $3Dmol.createViewer(document.getElementById("viewer"), {{backgroundColor: "{BG}"}});
-      {loader}
-      viewer.setStyle({{}}, {{sphere: {{radius: 0.18, color: "{BLUE_LIGHT}"}}}});
-      viewer.setStyle({{atom: "BB"}}, {{sphere: {{radius: 0.22, color: "{BLUE}"}}}});
-      viewer.setStyle({{atom: /^BB\\d+$/}}, {{sphere: {{radius: 0.22, color: "{BLUE}"}}}});
-      viewer.setStyle({{atom: /^SC/}}, {{sphere: {{radius: 0.18, color: "{BLUE_LIGHT}"}}}});
-      viewer.setStyle({{resn: ["W","SW","TW","SOL"]}}, {{sphere: {{radius: 0.08, color: "lightgray", opacity: 0.38}}}});
-      viewer.setStyle({{resn: ["NA","CL"]}}, {{sphere: {{radius: 0.12, colorscheme: "Jmol"}}}});
-      viewer.zoomTo();
-      viewer.render();
-      {animation}
-    </script>
-    <style>
-      html, body {{ margin:0; padding:0; overflow:hidden; background:{BG}; }}
-      .viewer-shell {{
-        width:100%; height:{height}px; box-sizing:border-box;
-        border:1px solid rgba(116,152,170,.28); border-radius:14px;
-        overflow:hidden; background:{BG};
-        box-shadow: inset 0 0 42px rgba(53,201,211,.06);
-      }}
-      .viewer {{ width:100%; height:{height}px; }}
-    </style>
-    """
+WATER_RESN = {"W", "WF", "SW", "TW", "SOL"}
+ION_RESN = {"NA", "CL", "ION", "K", "CA", "MG", "ZN", "LI", "RB", "CS", "BA", "SR", "F", "BR", "I"}
 
 
 def render_structure_preview(pdb_text: str, height: int = 430) -> None:
@@ -67,23 +34,231 @@ def render_structure_preview(pdb_text: str, height: int = 430) -> None:
       html, body {{ margin:0; padding:0; overflow:hidden; background:{BG}; }}
       .viewer-shell {{
         width:100%; height:{height}px; box-sizing:border-box;
-        border:1px solid rgba(116,152,170,.28); border-radius:14px;
+        border:1px solid rgba(116,152,170,.28); border-radius:16px;
         overflow:hidden; background:{BG};
         box-shadow: inset 0 0 42px rgba(53,201,211,.06);
       }}
-      .viewer {{ width:100%; height:{height}px; }}
+      .viewer {{ width:100%; height:{height}px; overflow:hidden; }}
     </style>
     """
     components.html(script, height=height + 2)
 
 
-def render_cg_structure(path: Path, height: int = 650) -> None:
-    text = path.read_text(errors="replace")
+def _parse_gro_atoms(path: Path) -> list[dict[str, float | int | str]]:
+    lines = path.read_text(errors="replace").splitlines()
+    atoms: list[dict[str, float | int | str]] = []
+    if len(lines) < 3:
+        return atoms
+    try:
+        count = int(lines[1].strip())
+    except ValueError:
+        return atoms
+    for raw in lines[2:2 + count]:
+        if len(raw) < 44:
+            continue
+        try:
+            atoms.append({
+                "serial": int(raw[15:20]),
+                "resid": int(raw[0:5]),
+                "resn": raw[5:10].strip(),
+                "name": raw[10:15].strip(),
+                "x": float(raw[20:28]),
+                "y": float(raw[28:36]),
+                "z": float(raw[36:44]),
+            })
+        except ValueError:
+            continue
+    return atoms
+
+
+def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
+    groups = {"protein": set(), "water": set(), "ions": set(), "solute": set()}
+    if not gro_path or not gro_path.exists():
+        return {key: [] for key in groups}
+
+    by_residue: dict[tuple[int, str], set[str]] = {}
+    for atom in _parse_gro_atoms(gro_path):
+        resid = int(atom["resid"])
+        resn = str(atom["resn"]).strip()
+        name = str(atom["name"]).strip().upper()
+        by_residue.setdefault((resid, resn), set()).add(name)
+
+    for (_resid, resn), names in by_residue.items():
+        upper = resn.upper()
+        if upper in WATER_RESN:
+            groups["water"].add(resn)
+        elif upper in ION_RESN:
+            groups["ions"].add(resn)
+        elif "BB" in names or any(name.startswith("SC") for name in names) or any(
+            name.startswith("BB") and name[2:].isdigit() for name in names
+        ):
+            groups["protein"].add(resn)
+        else:
+            groups["solute"].add(resn)
+    return {key: sorted(value) for key, value in groups.items()}
+
+
+def _parse_itp_bonds(itp_path: Path) -> list[tuple[int, int]]:
+    bonds: list[tuple[int, int]] = []
+    section = None
+    skip_block = False
+    for raw in itp_path.read_text(errors="ignore").splitlines():
+        stripped = raw.strip()
+        directive = stripped.upper()
+        if directive.startswith("#IFDEF GO_VIRT") or directive.startswith("#IFDEF RUBBER_BANDS"):
+            skip_block = True
+            continue
+        if skip_block:
+            if directive.startswith("#ENDIF"):
+                skip_block = False
+            continue
+
+        if stripped.startswith("[") and "]" in stripped:
+            section = stripped.strip("[]").strip().lower()
+            continue
+
+        line = raw.split(";", 1)[0].strip()
+        if not line or line.startswith("#") or section not in {"bonds", "constraints"}:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            left, right = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        if left != right:
+            bonds.append(tuple(sorted((left, right))))
+    return sorted(set(bonds))
+
+
+def _protein_bonds(system_dir: Path) -> list[tuple[int, int]]:
+    preferred = system_dir / "Protein.itp"
+    if preferred.is_file():
+        return _parse_itp_bonds(preferred)
+
+    skip = ("martini_", "go_", "posre", "choline", "urea")
+    for path in sorted(system_dir.glob("*.itp")):
+        if any(token in path.name.lower() for token in skip):
+            continue
+        bonds = _parse_itp_bonds(path)
+        if bonds:
+            return bonds
+    return []
+
+
+def _short_bond_cylinders(
+    gro_path: Path,
+    bonds: list[tuple[int, int]],
+    max_distance_nm: float = 0.75,
+) -> tuple[list[dict[str, dict[str, float]]], int]:
+    atoms = _parse_gro_atoms(gro_path)
+    by_serial = {int(atom["serial"]): atom for atom in atoms}
+    cylinders: list[dict[str, dict[str, float]]] = []
+    skipped = 0
+    max_d2 = max_distance_nm ** 2
+    for left, right in bonds:
+        a = by_serial.get(left)
+        b = by_serial.get(right)
+        if a is None or b is None:
+            continue
+        d2 = sum((float(a[k]) - float(b[k])) ** 2 for k in ("x", "y", "z"))
+        if d2 > max_d2:
+            skipped += 1
+            continue
+        cylinders.append({
+            "start": {k: 10.0 * float(a[k]) for k in ("x", "y", "z")},
+            "end": {k: 10.0 * float(b[k]) for k in ("x", "y", "z")},
+        })
+    return cylinders, skipped
+
+
+def render_build_viewer(
+    path: Path,
+    system_dir: Path,
+    *,
+    height: int = 800,
+    show_connectivity: bool = True,
+    bead_radius: float = 0.85,
+    bond_radius: float = 0.20,
+    topology_bond_max_nm: float = 0.75,
+) -> dict[str, int]:
+    """MartiniSurf-style build viewer: large beads plus protein connectivity."""
+    data = path.read_text(errors="replace")
     fmt = "gro" if path.suffix.lower() == ".gro" else "pdb"
-    components.html(_viewer_html(text, fmt, height=height), height=height + 2)
+    components_map = _component_resnames(path if path.suffix.lower() == ".gro" else None)
+    cylinders: list[dict[str, dict[str, float]]] = []
+    skipped = 0
+    if show_connectivity and path.suffix.lower() == ".gro":
+        cylinders, skipped = _short_bond_cylinders(
+            path, _protein_bonds(system_dir), topology_bond_max_nm
+        )
+
+    script = f"""
+    <div class="viewer-shell step4">
+      <div id="viewer" class="viewer"></div>
+      <div class="viewer-badge">Visual quality check</div>
+    </div>
+    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+    <script>
+      const viewer = $3Dmol.createViewer(document.getElementById("viewer"), {{backgroundColor: "{BG}"}});
+      viewer.addModel({json.dumps(data)}, {json.dumps(fmt)});
+      viewer.setStyle({{}}, {{sphere: {{radius: {float(bead_radius):.4f}}}}});
+      const components = {json.dumps(components_map)};
+      if (components.water.length) {{
+        viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "lightgray", opacity: 0.55}}}});
+      }}
+      if (components.ions.length) {{
+        viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "limegreen"}}}});
+      }}
+      if (components.solute.length) {{
+        viewer.setStyle({{resn: components.solute}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "yellow"}}}});
+      }}
+      if (components.protein.length) {{
+        viewer.setStyle({{resn: components.protein}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE_LIGHT}"}}}});
+      }}
+      viewer.setStyle({{atom: "BB"}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE}"}}}});
+      viewer.setStyle({{atom: /^BB\\d+$/}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE}"}}}});
+      viewer.setStyle({{atom: /^SC/}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE_LIGHT}"}}}});
+      for (const cylinder of {json.dumps(cylinders)}) {{
+        viewer.addCylinder({{
+          start: cylinder.start,
+          end: cylinder.end,
+          radius: {float(bond_radius):.4f},
+          color: "#F4F5F7",
+          fromCap: 1,
+          toCap: 1
+        }});
+      }}
+      viewer.zoomTo();
+      viewer.render();
+    </script>
+    <style>
+      html, body {{margin:0;padding:0;overflow:hidden;background:{BG};}}
+      .viewer-shell {{
+        position:relative;width:100%;height:{height}px;box-sizing:border-box;
+        border:1px solid rgba(116,152,170,.28);border-radius:16px;
+        overflow:hidden;background:{BG};box-shadow:inset 0 0 46px rgba(53,201,211,.06);
+      }}
+      .viewer {{width:100%;height:{height}px;overflow:hidden;}}
+      .viewer-badge {{
+        position:absolute;left:14px;bottom:14px;padding:8px 10px;
+        border:1px solid rgba(53,201,211,.30);border-radius:999px;
+        background:rgba(7,19,28,.78);color:#F3F7FA;
+        font:700 12px/1.2 sans-serif;pointer-events:none;
+      }}
+    </style>
+    """
+    components.html(script, height=height + 2)
+    return {"bonds": len(cylinders), "skipped_long": skipped}
 
 
-def _trajectory_as_multimodel_pdb(gro_path: Path, xtc_path: Path, stride: int, max_frames: int = 80) -> tuple[str, int]:
+def _trajectory_as_multimodel_pdb(
+    gro_path: Path,
+    xtc_path: Path,
+    stride: int,
+    max_frames: int = 80,
+) -> tuple[str, int]:
     try:
         import mdtraj as md
     except ImportError as exc:
@@ -110,7 +285,7 @@ def _trajectory_as_multimodel_pdb(gro_path: Path, xtc_path: Path, stride: int, m
     blocks: list[str] = []
     for frame_index, xyz in enumerate(traj.xyz, start=1):
         blocks.append(f"MODEL     {frame_index:4d}")
-        for atom, coord in zip(atoms, xyz):
+        for atom, coord in zip(atoms, traj.xyz[frame_index - 1]):
             x, y, z = (float(value) * 10.0 for value in coord)
             blocks.append(
                 f"ATOM  {atom['serial']:5d} {atom['name'][:4]:>4} {atom['resn'][:3]:>3} A"
@@ -121,7 +296,64 @@ def _trajectory_as_multimodel_pdb(gro_path: Path, xtc_path: Path, stride: int, m
     return "\n".join(blocks) + "\n", traj.n_frames
 
 
-def render_trajectory(gro_path: Path, xtc_path: Path, *, stride: int = 1, height: int = 650) -> int:
+def render_trajectory(
+    gro_path: Path,
+    xtc_path: Path,
+    *,
+    stride: int = 1,
+    height: int = 700,
+    show_protein: bool = True,
+    show_solute: bool = False,
+    show_water: bool = False,
+    show_ions: bool = False,
+) -> int:
+    """MartiniSurf-style trajectory viewer with large, component-aware beads."""
     pdb, frames = _trajectory_as_multimodel_pdb(gro_path, xtc_path, stride)
-    components.html(_viewer_html(pdb, "pdb", height=height, trajectory=True), height=height + 2)
+    components_map = _component_resnames(gro_path)
+    script = f"""
+    <div class="viewer-shell short-md">
+      <div id="viewer" class="viewer"></div>
+      <div class="viewer-badge">Production trajectory</div>
+    </div>
+    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+    <script>
+      const viewer = $3Dmol.createViewer(document.getElementById("viewer"), {{backgroundColor: "{TRAJ_BG}"}});
+      viewer.addModelsAsFrames({json.dumps(pdb)}, "pdb");
+      viewer.setStyle({{}}, {{sphere: {{hidden: true}}}});
+      const components = {json.dumps(components_map)};
+      if ({json.dumps(bool(show_water))} && components.water.length) {{
+        viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: 0.462, color: "lightgray", opacity: 0.55}}}});
+      }}
+      if ({json.dumps(bool(show_ions))} && components.ions.length) {{
+        viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: 0.605, color: "limegreen"}}}});
+      }}
+      if ({json.dumps(bool(show_solute))} && components.solute.length) {{
+        viewer.setStyle({{resn: components.solute}}, {{sphere: {{radius: 0.836, color: "yellow"}}}});
+      }}
+      if ({json.dumps(bool(show_protein))}) {{
+        viewer.setStyle({{atom: "BB"}}, {{sphere: {{radius: 0.902, color: "{BLUE}"}}}});
+        viewer.setStyle({{atom: /^BB\\d+$/}}, {{sphere: {{radius: 0.902, color: "{BLUE}"}}}});
+        viewer.setStyle({{atom: /^SC/}}, {{sphere: {{radius: 0.902, color: "{BLUE_LIGHT}"}}}});
+      }}
+      viewer.zoomTo();
+      viewer.animate({{loop: "forward", reps: 0}});
+      viewer.render();
+    </script>
+    <style>
+      html, body {{margin:0;padding:0;overflow:hidden;background:{TRAJ_BG};}}
+      .viewer-shell {{
+        position:relative;width:100%;height:{height}px;box-sizing:border-box;
+        border:1px solid rgba(66,199,213,.28);border-radius:16px;
+        overflow:hidden;background:{TRAJ_BG};box-shadow:inset 0 0 46px rgba(66,199,213,.08);
+      }}
+      .viewer {{width:100%;height:{height}px;overflow:hidden;}}
+      .viewer-badge {{
+        position:absolute;left:14px;bottom:14px;padding:8px 10px;
+        border:1px solid rgba(66,199,213,.35);border-radius:999px;
+        background:rgba(14,13,17,.78);color:#F5FAFA;
+        font:700 12px/1.2 sans-serif;pointer-events:none;
+      }}
+    </style>
+    """
+    components.html(script, height=height + 2)
     return frames
