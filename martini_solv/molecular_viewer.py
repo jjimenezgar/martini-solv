@@ -149,6 +149,7 @@ def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
         "water": set(),
         "choline": set(),
         "urea": set(),
+        "reline_chloride": set(),
         "ions": set(),
         "solute": set(),
     }
@@ -363,6 +364,7 @@ def _trajectory_as_multimodel_pdb(
     xtc_path: Path,
     stride: int,
     max_frames: int = 80,
+    reline_chloride_count: int = 0,
 ) -> tuple[str, int]:
     try:
         import mdtraj as md
@@ -379,12 +381,36 @@ def _trajectory_as_multimodel_pdb(
     lines = gro_path.read_text(errors="replace").splitlines()
     atom_count = int(lines[1])
     atoms = []
+    intrinsic_cl_seen = 0
     for index, raw in enumerate(lines[2:2 + atom_count], start=1):
+        original_resn = raw[5:10].strip() or "MOL"
+        atom_name = raw[10:15].strip() or "B"
+        upper = original_resn.upper()
+        namesafe = original_resn[:3]
+
+        # PDB residue names are limited to three characters. Use explicit
+        # viewer-only labels so CHOL/UREA remain selectable after GRO->PDB
+        # conversion, and separate Reline chloride from neutralizing ions.
+        if upper in CHOLINE_RESN:
+            namesafe = "CHO"
+        elif upper in UREA_RESN:
+            namesafe = "URE"
+        elif upper in WATER_RESN:
+            namesafe = "WAT"
+        elif upper in {"CL", "CL-"}:
+            if intrinsic_cl_seen < max(0, int(reline_chloride_count)):
+                namesafe = "RCL"
+                intrinsic_cl_seen += 1
+            else:
+                namesafe = "ICL"
+        elif upper in {"NA", "NA+"}:
+            namesafe = "INA"
+
         atoms.append({
             "serial": index,
             "resid": int(raw[0:5]),
-            "resn": raw[5:10].strip() or "MOL",
-            "name": raw[10:15].strip() or "B",
+            "resn": namesafe,
+            "name": atom_name,
         })
 
     blocks: list[str] = []
@@ -400,7 +426,6 @@ def _trajectory_as_multimodel_pdb(
     blocks.append("END")
     return "\n".join(blocks) + "\n", traj.n_frames
 
-
 def render_trajectory(
     gro_path: Path,
     xtc_path: Path,
@@ -411,10 +436,23 @@ def render_trajectory(
     show_solute: bool = False,
     show_solvent: bool = False,
     show_ions: bool = False,
+    reline_chloride_count: int = 0,
 ) -> int:
     """MartiniSurf-style trajectory viewer with large, component-aware beads."""
-    pdb, frames = _trajectory_as_multimodel_pdb(gro_path, xtc_path, stride)
-    components_map = _component_resnames(gro_path)
+    pdb, frames = _trajectory_as_multimodel_pdb(
+        gro_path, xtc_path, stride, reline_chloride_count=reline_chloride_count
+    )
+    # The GRO->PDB trajectory conversion uses stable three-character viewer
+    # labels so solvent components remain selectable in 3Dmol.
+    gro_components = _component_resnames(gro_path)
+    components_map = {
+        "water": ["WAT"],
+        "choline": ["CHO"],
+        "urea": ["URE"],
+        "reline_chloride": ["RCL"],
+        "ions": ["ICL", "INA", *[name[:3] for name in gro_components.get("ions", []) if name.upper() not in {"CL", "CL-", "NA", "NA+"}]],
+        "solute": sorted({name[:3] for name in gro_components.get("solute", [])}),
+    }
     script = f"""
     <div class="viewer-shell short-md">
       <div id="viewer" class="viewer"></div>
@@ -438,10 +476,13 @@ def render_trajectory(
         viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: 0.462, color: "#B0BEC5", opacity: 0.62}}}});
       }}
       if ({json.dumps(bool(show_solvent))} && components.choline.length) {{
-        viewer.setStyle({{resn: components.choline}}, {{sphere: {{radius: 0.605, color: "#7E57C2"}}}});
+        viewer.setStyle({{resn: components.choline}}, {{sphere: {{radius: 0.74, color: "#7E57C2"}}}});
       }}
       if ({json.dumps(bool(show_solvent))} && components.urea.length) {{
-        viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: 0.605, color: "#FFB74D"}}}});
+        viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: 0.70, color: "#FFB74D"}}}});
+      }}
+      if ({json.dumps(bool(show_solvent))} && components.reline_chloride.length) {{
+        viewer.setStyle({{resn: components.reline_chloride}}, {{sphere: {{radius: 0.56, color: "#EC407A"}}}});
       }}
       if ({json.dumps(bool(show_ions))} && components.ions.length) {{
         viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: 0.605, color: "limegreen"}}}});
