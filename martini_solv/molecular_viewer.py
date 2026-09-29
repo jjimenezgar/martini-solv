@@ -149,6 +149,7 @@ def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
         "water": set(),
         "choline": set(),
         "urea": set(),
+        "reline_chloride": set(),
         "ions": set(),
         "solute": set(),
     }
@@ -286,7 +287,8 @@ def render_build_viewer(
         <span><i style="background:#B0BEC5"></i>Water</span>
         <span><i style="background:#7E57C2"></i>Choline</span>
         <span><i style="background:#FFB74D"></i>Urea</span>
-        <span><i style="background:limegreen"></i>Ions</span>
+        <span><i style="background:#EC407A"></i>Reline Cl⁻</span>
+        <span><i style="background:limegreen"></i>Counterions</span>
         <span><i style="background:yellow"></i>Free molecule</span>
       </div>
     </div>
@@ -363,6 +365,7 @@ def _trajectory_as_multimodel_pdb(
     xtc_path: Path,
     stride: int,
     max_frames: int = 80,
+    reline_chloride_count: int = 0,
 ) -> tuple[str, int]:
     try:
         import mdtraj as md
@@ -379,12 +382,36 @@ def _trajectory_as_multimodel_pdb(
     lines = gro_path.read_text(errors="replace").splitlines()
     atom_count = int(lines[1])
     atoms = []
+    intrinsic_cl_seen = 0
     for index, raw in enumerate(lines[2:2 + atom_count], start=1):
+        original_resn = raw[5:10].strip() or "MOL"
+        atom_name = raw[10:15].strip() or "B"
+        upper = original_resn.upper()
+        namesafe = original_resn[:3]
+
+        # PDB residue names are limited to three characters. Use explicit
+        # viewer-only labels so CHOL/UREA remain selectable after GRO->PDB
+        # conversion, and separate Reline chloride from neutralizing ions.
+        if upper in CHOLINE_RESN:
+            namesafe = "CHO"
+        elif upper in UREA_RESN:
+            namesafe = "URE"
+        elif upper in WATER_RESN:
+            namesafe = "WAT"
+        elif upper in {"CL", "CL-"}:
+            if intrinsic_cl_seen < max(0, int(reline_chloride_count)):
+                namesafe = "RCL"
+                intrinsic_cl_seen += 1
+            else:
+                namesafe = "ICL"
+        elif upper in {"NA", "NA+"}:
+            namesafe = "INA"
+
         atoms.append({
             "serial": index,
             "resid": int(raw[0:5]),
-            "resn": raw[5:10].strip() or "MOL",
-            "name": raw[10:15].strip() or "B",
+            "resn": namesafe,
+            "name": atom_name,
         })
 
     blocks: list[str] = []
@@ -400,7 +427,6 @@ def _trajectory_as_multimodel_pdb(
     blocks.append("END")
     return "\n".join(blocks) + "\n", traj.n_frames
 
-
 def render_trajectory(
     gro_path: Path,
     xtc_path: Path,
@@ -411,10 +437,21 @@ def render_trajectory(
     show_solute: bool = False,
     show_solvent: bool = False,
     show_ions: bool = False,
+    reline_chloride_count: int = 0,
 ) -> int:
     """MartiniSurf-style trajectory viewer with large, component-aware beads."""
-    pdb, frames = _trajectory_as_multimodel_pdb(gro_path, xtc_path, stride)
-    components_map = _component_resnames(gro_path)
+    pdb, frames = _trajectory_as_multimodel_pdb(
+        gro_path, xtc_path, stride, reline_chloride_count=reline_chloride_count
+    )
+    # The GRO->PDB trajectory conversion uses stable three-character viewer
+    # labels so solvent components remain selectable in 3Dmol.
+    components_map = {
+        "water": ["WAT"],
+        "choline": ["CHO"],
+        "urea": ["URE"],
+        "reline_chloride": ["RCL"],
+        "ions": ["ICL", "INA"],
+    }
     script = f"""
     <div class="viewer-shell short-md">
       <div id="viewer" class="viewer"></div>
@@ -442,6 +479,9 @@ def render_trajectory(
       }}
       if ({json.dumps(bool(show_solvent))} && components.urea.length) {{
         viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: 0.605, color: "#FFB74D"}}}});
+      }}
+      if ({json.dumps(bool(show_solvent))} && components.reline_chloride.length) {{
+        viewer.setStyle({{resn: components.reline_chloride}}, {{sphere: {{radius: 0.56, color: "#EC407A"}}}});
       }}
       if ({json.dumps(bool(show_ions))} && components.ions.length) {{
         viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: 0.605, color: "limegreen"}}}});
