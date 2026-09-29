@@ -8,7 +8,7 @@ from martini_solv.models import BuildConfig, reline_counts
 
 class TestModels(unittest.TestCase):
     def test_reline_stoichiometry_and_actual_water_fraction(self):
-        counts = reline_counts(5.0, 0.10, 3.2)
+        counts = reline_counts(5.0, 0.10)
         self.assertEqual(counts["UREA"], 2 * counts["CHOL"])
         self.assertEqual(counts["CL"], counts["CHOL"])
         self.assertLess(abs(counts["x_water_actual"] - 0.10), 0.002)
@@ -20,7 +20,7 @@ class TestModels(unittest.TestCase):
 
 
     def test_dry_reline_has_no_water(self):
-        self.assertEqual(reline_counts(5.0, 0, 3.2)["W"], 0)
+        self.assertEqual(reline_counts(5.0, 0)["W"], 0)
 
     def test_protein_pdb_filters_water_and_second_model(self):
         with TemporaryDirectory() as directory:
@@ -160,3 +160,9 @@ class TestModels(unittest.TestCase):
             expected = {"CHOL": 1, "UREA": 2, "CL": 1, "W": 1}
             actual = _verify_reline_composition(gro, expected)
             self.assertEqual(actual, expected)
+
+    def test_reline_uses_experimental_density(self):
+        counts = reline_counts(1.0, 0.0)
+        self.assertAlmostEqual(float(counts["target_density_g_cm3"]), 1.20, places=6)
+        self.assertAlmostEqual(float(counts["dry_formula_units_per_nm3"]), 2.782, places=3)
+
