@@ -70,7 +70,7 @@ DEFAULTS = {
     "short_md_view_stride": 1,
     "short_md_view_protein": True,
     "short_md_view_solute": False,
-    "short_md_view_water": False,
+    "short_md_view_solvent": False,
     "short_md_view_ions": False,
 }
 if st.session_state.get("_martinisolv_state_version") != APP_STATE_VERSION:
@@ -527,7 +527,7 @@ elif step == "Review & Build":
         summary_a.metric("Protein", config.molecule_name)
         summary_b.metric("Model", "GōMartini" if config.go else ("Elastic" if config.elastic else "Martini 3"))
         summary_c.metric("Solvent", "Water" if config.solvent == "water" else "Reline")
-        summary_d.metric("Free species", len(config.solutes))
+        summary_d.metric("Free molecules", sum(spec.count for spec in config.solutes))
 
         left, right = st.columns([1.15, 0.85], gap="large")
         with right:
@@ -635,6 +635,21 @@ elif step == "Review & Build":
                     {"Setting": "Build check", "Value": manifest.get("status", "")},
                 ]
                 st.dataframe(rows, hide_index=True, use_container_width=True)
+                free_rows = manifest.get("free_molecules") or []
+                if free_rows:
+                    st.markdown("##### Free molecules included")
+                    st.dataframe(
+                        [
+                            {
+                                "Molecule": row.get("name", ""),
+                                "Copies requested": int(row.get("count", 0)),
+                                "SMILES": row.get("smiles", ""),
+                            }
+                            for row in free_rows
+                        ],
+                        hide_index=True,
+                        use_container_width=True,
+                    )
             st.download_button(
                 "Download GROMACS package",
                 archive(built),
@@ -759,8 +774,9 @@ elif step == "Short MD":
                     on_change=_store_widget, args=("short_md_view_solute",),
                 )
                 toggle_c.toggle(
-                    "Water", key=_prime_widget("short_md_view_water"),
-                    on_change=_store_widget, args=("short_md_view_water",),
+                    "Solvent", key=_prime_widget("short_md_view_solvent"),
+                    on_change=_store_widget, args=("short_md_view_solvent",),
+                    help="Shows the active solvent: water, or the individual reline components (choline and urea; plus water for wet reline).",
                 )
                 toggle_d.toggle(
                     "Ions", key=_prime_widget("short_md_view_ions"),
@@ -779,7 +795,7 @@ elif step == "Short MD":
                             height=700,
                             show_protein=bool(st.session_state.short_md_view_protein),
                             show_solute=bool(st.session_state.short_md_view_solute),
-                            show_water=bool(st.session_state.short_md_view_water),
+                            show_solvent=bool(st.session_state.short_md_view_solvent),
                             show_ions=bool(st.session_state.short_md_view_ions),
                         )
                         st.caption(
