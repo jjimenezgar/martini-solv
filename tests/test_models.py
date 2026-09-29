@@ -1,5 +1,8 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
+from martini_solv.builder import _clean_protein_pdb
 from martini_solv.models import BuildConfig, reline_counts
 
 
@@ -18,3 +21,13 @@ class TestModels(unittest.TestCase):
 
     def test_dry_reline_has_no_water(self):
         self.assertEqual(reline_counts(5.0, 0, 3.2)["W"], 0)
+
+    def test_protein_pdb_filters_water_and_second_model(self):
+        with TemporaryDirectory() as directory:
+            source, target = Path(directory) / "input.pdb", Path(directory) / "protein.pdb"
+            atom = "ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00 34.00           N"
+            water = "HETATM    2  O   HOH A 100      27.340  24.430   2.614  1.00 34.00           O"
+            source.write_text("MODEL        1\n" + atom + "\n" + water + "\nENDMDL\nMODEL        2\n" + atom + "\nENDMDL\n")
+            _clean_protein_pdb(source, target)
+            self.assertEqual(sum(line.startswith("ATOM  ") for line in target.read_text().splitlines()), 1)
+            self.assertNotIn("HOH", target.read_text())

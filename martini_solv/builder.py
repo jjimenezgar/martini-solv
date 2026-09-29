@@ -67,6 +67,26 @@ def _gro_count(gro: Path) -> int:
     return int(gro.read_text().splitlines()[1].strip())
 
 
+def _clean_protein_pdb(source: Path, target: Path) -> None:
+    """Keep the first model's protein atoms; exclude waters, ligands and alternate B sites."""
+    lines = []
+    saw_model = False
+    for raw in source.read_text(errors="replace").splitlines():
+        if raw.startswith("MODEL "):
+            if saw_model:
+                break
+            saw_model = True
+        elif raw.startswith("ENDMDL"):
+            break
+        elif raw.startswith("ATOM  ") and raw[16:17] in {" ", "A"}:
+            lines.append(raw[:16] + " " + raw[17:])
+        elif raw.startswith("TER"):
+            lines.append(raw)
+    if not any(row.startswith("ATOM  ") for row in lines):
+        raise ValueError("No protein ATOM records after PDB cleanup")
+    target.write_text("\n".join(lines + ["END"]) + "\n")
+
+
 def _molecule_type(itp: Path) -> str:
     inside = False
     for line in itp.read_text().splitlines():
@@ -164,10 +184,11 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
     log = work / "build.log"
     try:
         shutil.copy2(pdb, work / "input.pdb")
+        _clean_protein_pdb(work / "input.pdb", work / "protein_clean.pdb")
         sources = download_models(work, config.solvent == "reline")
         if importlib.util.find_spec("mdtraj") is None:
             raise RuntimeError("mdtraj is required for protein secondary structure")
-        run(["martinize2", "-f", "input.pdb", "-x", "protein_cg.pdb", "-o", "protein.top",
+        run(["martinize2", "-f", "protein_clean.pdb", "-x", "protein_cg.pdb", "-o", "protein.top",
              "-ff", "martini3001", "-dssp", "-ignh", "-elastic", "-ef", "700", "-el", "0.5", "-eu", "0.9"], work, log)
         protein = _molecules(work / "protein.top")
         if config.solvent == "reline" and abs(_protein_net_charge(work)) > 0.001:
