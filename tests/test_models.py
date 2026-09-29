@@ -54,18 +54,18 @@ class TestModels(unittest.TestCase):
     def test_go_topology_preserves_martinize_directives_before_protein(self):
         with TemporaryDirectory() as directory:
             work = Path(directory)
-            (work / "martini_v3.0.0.itp").write_text("[ defaults ]\\n1 1 yes 1.0 1.0\\n")
-            (work / "martini_v3.0.0_ions_v1.itp").write_text("; ions\\n")
-            (work / "martini_v3.0.0_solvents_v1.itp").write_text("; solvents\\n")
-            (work / "go_atomtypes.itp").write_text("[ atomtypes ]\\nProtein_1 72 0 A 0.0 0.0\\n")
-            (work / "Protein.itp").write_text("[ moleculetype ]\\nProtein 1\\n[ atoms ]\\n1 Protein_1 1 MET BB 1 0\\n")
+            (work / "martini_v3.0.0.itp").write_text("[ defaults ]\n1 1 yes 1.0 1.0\n")
+            (work / "martini_v3.0.0_ions_v1.itp").write_text("; ions\n")
+            (work / "martini_v3.0.0_solvents_v1.itp").write_text("; solvents\n")
+            (work / "go_atomtypes.itp").write_text("[ atomtypes ]\nProtein_1 72 0 A 0.0 0.0\n")
+            (work / "Protein.itp").write_text("[ moleculetype ]\nProtein 1\n[ atoms ]\n1 Protein_1 1 MET BB 1 0\n")
             (work / "protein.top").write_text(
-                '#define GO_VIRT\\n'
-                '#include "martini_v3.0.0.itp"\\n'
-                '#include "go_atomtypes.itp"\\n'
-                '#include "Protein.itp"\\n\\n'
-                '[ system ]\\nProtein\\n\\n'
-                '[ molecules ]\\nProtein 1\\n'
+                '#define GO_VIRT\n'
+                '#include "martini_v3.0.0.itp"\n'
+                '#include "go_atomtypes.itp"\n'
+                '#include "Protein.itp"\n\n'
+                '[ system ]\nProtein\n\n'
+                '[ molecules ]\nProtein 1\n'
             )
             _topology(work, [("Protein", 1)], [("W", 20)], go_enabled=True)
             text = (work / "system.top").read_text()
