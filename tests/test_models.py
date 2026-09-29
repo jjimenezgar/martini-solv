@@ -58,6 +58,7 @@ class TestModels(unittest.TestCase):
             (work / "martini_v3.0.0_ions_v1.itp").write_text("; ions\n")
             (work / "martini_v3.0.0_solvents_v1.itp").write_text("; solvents\n")
             (work / "go_atomtypes.itp").write_text("[ atomtypes ]\nProtein_1 72 0 A 0.0 0.0\n")
+            (work / "go_nbparams.itp").write_text("[ nonbond_params ]\nProtein_1 Protein_1 1 0.47 5.0\n")
             (work / "Protein.itp").write_text("[ moleculetype ]\nProtein 1\n[ atoms ]\n1 Protein_1 1 MET BB 1 0\n")
             (work / "protein.top").write_text(
                 '#define GO_VIRT\n'
