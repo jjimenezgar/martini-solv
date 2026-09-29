@@ -8,6 +8,8 @@ An independent, small protein system builder inspired by [MartiniSurf](https://g
 
 Linux/Conda, GROMACS, martinize2, DSSP and INSANE are required. The official Martinize2 and INSANE projects install their CLI via the `vermouth` and `insane` Python packages, respectively; `environment.yml` uses pip for those two tools inside Conda. This is an initial environment specification rather than a tested cross-platform lockfile:
 
+The environment selects DSSP 3.1.4 because the [Martini protein tutorial](https://cgmartini.nl/docs/tutorials/Legacy/martini3/ProteinsI_Jan2025/) warns that DSSP 4 changed its output format for Martinize2. Conda availability still needs an integration run on a supported Linux machine.
+
 ```bash
 mamba env create -f environment.yml
 conda activate martini-solv

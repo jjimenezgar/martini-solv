@@ -5,7 +5,7 @@ channels:
 dependencies:
   - python=3.11
   - gromacs
-  - dssp
+  - dssp=3.1.4
   - streamlit
   - rdkit
   - pytest
