@@ -347,7 +347,9 @@ def run_short_md_analysis(
             raise FileNotFoundError("The selected stage needs an EDR file for density analysis")
         output = output_dir / "system_density.xvg"
         density_index = _gmx_energy_term_index(gmx, edr, "Density", output_dir)
-        command = [gmx, "energy", "-f", str(edr), "-o", str(output), "-tu", "ns"]
+        # gmx energy in GROMACS 2025.x does not support -tu. Energy XVG time
+        # is emitted in ps, so convert to ns after parsing.
+        command = [gmx, "energy", "-f", str(edr), "-o", str(output)]
         result = subprocess.run(
             command,
             cwd=output_dir,
@@ -362,6 +364,8 @@ def run_short_md_analysis(
         detail = (result.stderr or result.stdout or "GROMACS analysis failed").strip()
         raise RuntimeError(detail[-2500:])
     points = parse_xvg(output)
+    if normalized == "density":
+        points = [(x / 1000.0, y) for x, y in points]
     if not points:
         raise RuntimeError(f"{output.name} contains no numeric data")
     return AnalysisResult(normalized, x_label, y_label, points, output)
