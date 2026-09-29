@@ -511,7 +511,7 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             box = [float(v) for v in lines[-1].split()[:3]]
             if len(box) != 3 or min(box) <= 0:
                 raise ValueError("Invalid GRO box")
-            counts = reline_counts(math.prod(box) ** (1 / 3), config.water_fraction, config.des_pairs_per_nm3)
+            counts = reline_counts(math.prod(box) ** (1 / 3), config.water_fraction, config.reline_density_g_cm3)
             # The published choline/urea coordinates are packaged in the cited DES model repository.
             (work / "chloride.gro").write_text("Chloride\n1\n    1CL     CL    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
             (work / "water.gro").write_text("Water\n1\n    1W       W    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
