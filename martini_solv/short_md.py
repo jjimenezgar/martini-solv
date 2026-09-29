@@ -370,11 +370,130 @@ def run_short_md_analysis(
         raise RuntimeError(f"{output.name} contains no numeric data")
     return AnalysisResult(normalized, x_label, y_label, points, output)
 
+def _packaged_topology_text(system: Path) -> str:
+    """Rewrite local ITP includes for the MartiniSurf-style package layout."""
+    top = system / "system.top"
+    if not top.is_file():
+        raise FileNotFoundError("system.top is missing from the built system")
+    local_itps = {path.name for path in system.glob("*.itp")}
+    lines: list[str] = []
+    for raw in top.read_text(errors="replace").splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("#include"):
+            first_quote = raw.find('"')
+            second_quote = raw.find('"', first_quote + 1) if first_quote >= 0 else -1
+            if first_quote >= 0 and second_quote > first_quote:
+                target = raw[first_quote + 1:second_quote]
+                name = Path(target).name
+                if name in local_itps:
+                    raw = raw[:first_quote + 1] + "system_itp/" + name + raw[second_quote:]
+        lines.append(raw)
+    return "\n".join(lines) + "\n"
+
+def _package_readme(has_short_md: bool) -> str:
+    short_md_text = (
+        "3_short_md/\n"
+        "  Results of the optional MartiniSolv Short MD workflow, including TPR, GRO, "
+        "XTC, EDR, CPT, logs and any generated analyses.\n\n"
+        if has_short_md
+        else ""
+    )
+    return (
+        "MartiniSolv Simulation_Files\n"
+        "=============================\n\n"
+        "This package is organised like MartiniSurf so the generated system can be "
+        "continued directly with GROMACS.\n\n"
+        "0_topology/\n"
+        "  system.top                Main GROMACS topology.\n"
+        "  system_itp/               Martini force-field, protein, Go-model, solvent "
+        "and free-molecule ITP files.\n\n"
+        "1_mdp/\n"
+        "  minimization.mdp          Build validation/minimisation input.\n"
+        "  nvt.mdp                   Short NVT template.\n"
+        "  npt.mdp                   Short NPT template.\n"
+        "  production.mdp            Short production template; extend nsteps for a "
+        "scientific production run.\n\n"
+        "2_system/\n"
+        "  system.gro                Final solvated/packed starting coordinates.\n"
+        "  protein_cg.pdb            Coarse-grained protein, when available.\n"
+        "  protein_clean.pdb         Cleaned atomistic input, when available.\n\n"
+        + short_md_text +
+        "metadata/\n"
+        "  manifest.json             Exact MartiniSolv configuration and composition.\n"
+        "  build.log                 Build commands and tool output.\n\n"
+        "Example workflow from inside Simulation_Files:\n"
+        "  gmx grompp -f 1_mdp/minimization.mdp -c 2_system/system.gro "
+        "-r 2_system/system.gro -p 0_topology/system.top -o em.tpr\n"
+        "  gmx mdrun -deffnm em\n"
+        "  gmx grompp -f 1_mdp/nvt.mdp -c em.gro -r em.gro "
+        "-p 0_topology/system.top -o nvt.tpr\n"
+        "  gmx mdrun -deffnm nvt\n\n"
+        "The supplied NVT/NPT/Production MDP files are short validation templates. "
+        "Review timestep, duration, coupling groups and scientific protocol before "
+        "using them for production research.\n"
+    )
+
+
 def archive(system: Path) -> bytes:
-    """Bundle the prepared system plus any completed short protocol."""
+    """Create a MartiniSurf-style, simulation-ready Simulation_Files package."""
+    system = Path(system).resolve()
+    required = ("system.gro", "system.top", "minimization.mdp")
+    missing = [name for name in required if not (system / name).is_file()]
+    if missing:
+        raise FileNotFoundError("Cannot package system; missing: " + ", ".join(missing))
+
+    root = Path("Simulation_Files")
     data = io.BytesIO()
+    short_md = system / "short_md"
+    has_short_md = short_md.is_dir()
+
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as zipped:
-        for file in sorted(Path(system).rglob("*")):
-            if file.is_file():
-                zipped.write(file, file.relative_to(system))
+        # 0_topology: main TOP plus every local include required by that topology.
+        zipped.writestr(str(root / "0_topology" / "system.top"), _packaged_topology_text(system))
+        for path in sorted(system.glob("*.itp")):
+            zipped.write(path, str(root / "0_topology" / "system_itp" / path.name))
+
+        # 1_mdp: always provide a complete minimal continuation protocol.
+        zipped.write(
+            system / "minimization.mdp",
+            str(root / "1_mdp" / "minimization.mdp"),
+        )
+        for stage_name in STAGE_ORDER:
+            defaults = DEFAULT_STAGE_SETTINGS[stage_name]
+            stage = StageSettings(
+                stage_name,
+                True,
+                float(defaults["dt_ps"]),
+                float(defaults["time_ns"]),
+            )
+            zipped.writestr(
+                str(root / "1_mdp" / f"{stage_name}.mdp"),
+                _stage_mdp(stage, DEFAULT_XTC_WRITE_EVERY_PS),
+            )
+
+        # 2_system: canonical coordinates plus useful structure references.
+        zipped.write(system / "system.gro", str(root / "2_system" / "system.gro"))
+        for name in ("protein_cg.pdb", "protein_clean.pdb", "input.pdb"):
+            path = system / name
+            if path.is_file():
+                target = "input_atomistic.pdb" if name == "input.pdb" else name
+                zipped.write(path, str(root / "2_system" / target))
+
+        # Optional Short MD results remain separate from reusable setup files.
+        if has_short_md:
+            for path in sorted(short_md.rglob("*")):
+                if path.is_file():
+                    zipped.write(
+                        path,
+                        str(root / "3_short_md" / path.relative_to(short_md)),
+                    )
+
+        # Reproducibility metadata and logs.
+        for name in ("manifest.json", "build.log"):
+            path = system / name
+            if path.is_file():
+                zipped.write(path, str(root / "metadata" / name))
+
+        zipped.writestr(str(root / "README.txt"), _package_readme(has_short_md))
+
     return data.getvalue()

@@ -816,9 +816,9 @@ elif step == "Review & Build":
                         use_container_width=True,
                     )
             st.download_button(
-                "Download GROMACS package",
+                "Download Simulation_Files",
                 archive(built),
-                file_name="martini-solv-system.zip",
+                file_name="Simulation_Files.zip",
                 mime="application/zip",
                 type="primary",
                 use_container_width=True,
@@ -981,7 +981,7 @@ elif step == "Short MD":
                 _render_stage_analysis(selected)
 
             st.download_button(
-                "Download system and Short MD files",
+                "Download Simulation_Files + Short MD",
                 archive(built),
                 file_name="martini-solv-system.zip",
                 mime="application/zip",
