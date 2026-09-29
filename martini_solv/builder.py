@@ -67,6 +67,20 @@ def _gro_count(gro: Path) -> int:
     return int(gro.read_text().splitlines()[1].strip())
 
 
+def _normalize_insane_ions(gro: Path) -> None:
+    """INSANE still writes Martini 2 ion labels; Martini 3 uses NA and CL."""
+    lines = gro.read_text().splitlines()
+    count = int(lines[1])
+    for index in range(2, 2 + count):
+        row = lines[index]
+        residue, atom = row[5:10].strip(), row[10:15].strip()
+        if residue in {"NA+", "CL-"} or atom in {"NA+", "CL-"}:
+            residue = {"NA+": "NA", "CL-": "CL"}.get(residue, residue)
+            atom = {"NA+": "NA", "CL-": "CL"}.get(atom, atom)
+            lines[index] = row[:5] + f"{residue:>5}{atom:>5}" + row[15:]
+    gro.write_text("\n".join(lines) + "\n")
+
+
 def _clean_protein_pdb(source: Path, target: Path) -> None:
     """Keep the first model's protein atoms; exclude waters, ligands and alternate B sites."""
     lines = []
@@ -209,6 +223,7 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         if config.solvent == "water":
             run(["insane", "-f", str(current), "-o", "system.gro", "-p", "insane.top", "-pbc", "cubic",
                  "-d", "0", "-sol", "W", "-salt", str(config.salt_m), "-charge", "auto"], work, log)
+            _normalize_insane_ions(work / "system.gro")
             entries = _molecules(work / "insane.top")
             # INSANE's output may list protein and solutes; remove only the already recorded copies.
             for name, count in entries:

@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from martini_solv.builder import _clean_protein_pdb
+from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions
 from martini_solv.models import BuildConfig, reline_counts
 
 
@@ -31,3 +31,14 @@ class TestModels(unittest.TestCase):
             _clean_protein_pdb(source, target)
             self.assertEqual(sum(line.startswith("ATOM  ") for line in target.read_text().splitlines()), 1)
             self.assertNotIn("HOH", target.read_text())
+
+    def test_insane_ion_labels_match_martini3(self):
+        with TemporaryDirectory() as directory:
+            gro = Path(directory) / "system.gro"
+            gro.write_text("ions\n2\n    1NA+   NA+    1   0.100   0.200   0.300\n"
+                           "    2CL-   CL-    2   0.400   0.500   0.600\n"
+                           "   1.00000   1.00000   1.00000\n")
+            _normalize_insane_ions(gro)
+            lines = gro.read_text().splitlines()
+            self.assertEqual([(row[5:10].strip(), row[10:15].strip()) for row in lines[2:4]],
+                             [("NA", "NA"), ("CL", "CL")])
