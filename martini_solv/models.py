@@ -29,7 +29,7 @@ class BuildConfig:
     solvent: str = "water"
     water_fraction: float = 0.0
     salt_m: float = 0.15
-    box_distance_nm: float = 1.2
+    box_distance_nm: float = 1.0
     des_pairs_per_nm3: float = 3.2
     seed: int = 2026
 
@@ -38,7 +38,7 @@ class BuildConfig:
     merge_chains: str = "A"
     dssp: bool = True
     go: bool = True
-    go_eps: float = 9.415
+    go_eps: float = 9.414
     elastic: bool = False
     elastic_force: int = 700
     position_restraints: str = "backbone"
