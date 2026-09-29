@@ -42,14 +42,14 @@ DEFAULTS = {
     "merge_chain_count": 1,
     "dssp": True,
     "go": True,
-    "go_eps": 9.415,
+    "go_eps": 9.414,
     "position_restraints": "backbone",
     "elastic": False,
     "elastic_force": 700,
     "maxwarn": 1,
     "martinize_extra": "",
     "solvent_ui": "Water",
-    "box_distance": 1.2,
+    "box_distance": 1.0,
     "salt": 0.15,
     "water_fraction": 0.0,
     "solutes": [],
@@ -66,6 +66,11 @@ for stage, defaults in DEFAULT_STAGE_SETTINGS.items():
     st.session_state.setdefault(f"short_md_run_{stage}", bool(defaults["enabled"]))
     st.session_state.setdefault(f"short_md_{stage}_dt", float(defaults["dt_ps"]))
     st.session_state.setdefault(f"short_md_{stage}_time", float(defaults["time_ns"]))
+
+
+def _sync_pdb_id_from_widget() -> None:
+    """Keep the chosen PDB ID even when the Structure widget is not rendered."""
+    st.session_state["pdb_id"] = str(st.session_state.get("_pdb_id_input", "")).strip().upper()
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -273,7 +278,16 @@ if step == "Structure":
             st.session_state.pdb_bytes = uploaded.getvalue()
             st.session_state.pdb_name = uploaded.name
             st.session_state.pdb_source_id = ""
-        st.text_input("PDB ID", key="pdb_id", help="Enter a four-character RCSB PDB ID, for example 1UBQ.")
+        if "_pdb_id_input" not in st.session_state:
+            st.session_state["_pdb_id_input"] = str(st.session_state.get("pdb_id", "1UBQ"))
+        st.text_input(
+            "PDB ID",
+            key="_pdb_id_input",
+            on_change=_sync_pdb_id_from_widget,
+            help="Enter a four-character RCSB PDB ID, for example 1UBQ.",
+        )
+        # Keep the persistent value synchronized on the first render too.
+        _sync_pdb_id_from_widget()
         with st.expander("Optional auxiliary files"):
             st.caption("No surface/linker files are needed in MartiniSolv.")
 
