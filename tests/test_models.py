@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved
+from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved, _verify_reline_composition
 from martini_solv.models import BuildConfig, reline_counts
 
 
@@ -140,3 +140,23 @@ class TestModels(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "did not preserve"):
                 _verify_existing_coordinates_preserved(before, after)
+
+
+    def test_reline_coordinate_composition_accepts_packmol_truncated_names(self):
+        with TemporaryDirectory() as directory:
+            gro = Path(directory) / "system.gro"
+            gro.write_text(
+                "reline\n8\n"
+                "    1CHO    N1    1   0.100   0.100   0.100\n"
+                "    1CHO    OH    2   0.200   0.100   0.100\n"
+                "    2URE    N1    3   0.300   0.100   0.100\n"
+                "    2URE    UP    4   0.400   0.100   0.100\n"
+                "    2URE    UN    5   0.500   0.100   0.100\n"
+                "    3URE    N1    6   0.600   0.100   0.100\n"
+                "    4CL     CL    7   0.700   0.100   0.100\n"
+                "    5W       W    8   0.800   0.100   0.100\n"
+                "   2.00000   2.00000   2.00000\n"
+            )
+            expected = {"CHOL": 1, "UREA": 2, "CL": 1, "W": 1}
+            actual = _verify_reline_composition(gro, expected)
+            self.assertEqual(actual, expected)
