@@ -30,7 +30,7 @@ class BuildConfig:
     water_fraction: float = 0.0
     salt_m: float = 0.15
     box_distance_nm: float = 1.0
-    des_pairs_per_nm3: float = 3.2
+    reline_density_g_cm3: float = 1.20
     seed: int = 2026
 
     # Protein model controls mirror the useful MartiniSurf protein controls.
@@ -59,8 +59,8 @@ class BuildConfig:
             raise ValueError("Added NaCl is currently supported only for water")
         if self.salt_m < 0 or not 0.5 <= self.box_distance_nm <= 5:
             raise ValueError("Check salt concentration and box distance")
-        if not 0 < self.des_pairs_per_nm3 <= 4:
-            raise ValueError("DES pair density is outside the supported initial packing range")
+        if not 0.5 <= self.reline_density_g_cm3 <= 2.0:
+            raise ValueError("Reline density must be between 0.5 and 2.0 g/cm³")
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,15}", self.molecule_name):
             raise ValueError("Molecule name must start with a letter and contain only letters, numbers or underscores")
         if self.position_restraints not in {"backbone", "all", "none"}:
@@ -85,10 +85,35 @@ class BuildConfig:
         return json.dumps(asdict(self), indent=2, sort_keys=True)
 
 
-def reline_counts(box_nm: float, water_fraction: float, pairs_per_nm3: float) -> dict[str, float | int]:
-    """x_H2O counts molecular waters; one Martini W bead represents four waters."""
+RELINE_DENSITY_G_CM3 = 1.20
+CHCL_MOLAR_MASS_G_MOL = 139.62
+UREA_MOLAR_MASS_G_MOL = 60.06
+AVOGADRO = 6.02214076e23
+
+
+def reline_counts(
+    box_nm: float,
+    water_fraction: float,
+    density_g_cm3: float = RELINE_DENSITY_G_CM3,
+) -> dict[str, float | int]:
+    """Estimate a ChCl:urea 1:2 composition from the experimental bulk density.
+
+    The dry DES formula unit is 1 choline chloride + 2 urea molecules.
+    1 nm³ = 1e-21 cm³. Water fraction counts molecular waters; one Martini W
+    bead represents four water molecules.
+    """
+    formula_mass = CHCL_MOLAR_MASS_G_MOL + 2 * UREA_MOLAR_MASS_G_MOL
+    pairs_per_nm3 = density_g_cm3 * 1e-21 * AVOGADRO / formula_mass
     pairs = max(1, round(box_nm**3 * pairs_per_nm3))
     urea = 2 * pairs
     water_beads = round(water_fraction * (pairs + urea) / (4 * (1 - water_fraction)))
-    actual = 4 * water_beads / (3 * pairs + 4 * water_beads)
-    return {"CHOL": pairs, "CL": pairs, "UREA": urea, "W": water_beads, "x_water_actual": actual}
+    actual = 4 * water_beads / (3 * pairs + 4 * water_beads) if (pairs or water_beads) else 0.0
+    return {
+        "CHOL": pairs,
+        "CL": pairs,
+        "UREA": urea,
+        "W": water_beads,
+        "x_water_actual": actual,
+        "target_density_g_cm3": density_g_cm3,
+        "dry_formula_units_per_nm3": pairs_per_nm3,
+    }
