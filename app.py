@@ -12,7 +12,7 @@ import streamlit as st
 
 from martini_solv.builder import _map_solute, build
 from martini_solv.models import BuildConfig, Solute
-from martini_solv.molecular_viewer import render_cg_structure, render_structure_preview, render_trajectory
+from martini_solv.molecular_viewer import render_build_viewer, render_structure_preview, render_trajectory
 from martini_solv.short_md import (
     DEFAULT_GROMPP_MAXWARN,
     DEFAULT_STAGE_SETTINGS,
@@ -57,13 +57,21 @@ DEFAULTS = {
     "new_smiles": "",
     "new_name": "",
     "new_copies": 1,
-    "build_view": "Martini protein",
+    "build_view": "Full solvated system",
+    "viewer_show_connectivity": True,
+    "viewer_bead_radius": 0.85,
+    "viewer_bond_radius": 0.20,
+    "viewer_topology_bond_max_nm": 0.75,
     "short_md_output_tag": "Protein MD",
     "short_md_xtc_write_every_ps": DEFAULT_XTC_WRITE_EVERY_PS,
     "short_md_grompp_maxwarn": DEFAULT_GROMPP_MAXWARN,
     "short_md_threads": 2,
     "short_md_view_stage": "production",
     "short_md_view_stride": 1,
+    "short_md_view_protein": True,
+    "short_md_view_solute": False,
+    "short_md_view_water": False,
+    "short_md_view_ions": False,
 }
 if st.session_state.get("_martinisolv_state_version") != APP_STATE_VERSION:
     # One-time migration: make the requested defaults visible even in browser
@@ -520,7 +528,45 @@ elif step == "Review & Build":
                         "Structure to view", view_options, label_visibility="collapsed",
                         key=view_key, on_change=_store_widget, args=("build_view",),
                     )
-                    render_cg_structure(protein_cg if selected == "Martini protein" else system_gro, height=620)
+                    with st.expander("Viewer Options", expanded=False):
+                        show_connectivity = st.toggle(
+                            "Show protein topology connectivity",
+                            key=_prime_widget("viewer_show_connectivity"),
+                            on_change=_store_widget,
+                            args=("viewer_show_connectivity",),
+                            help="Draws short protein bonds as thin white cylinders, matching MartiniSurf.",
+                        )
+                        va, vb = st.columns(2)
+                        bead_radius = va.number_input(
+                            "Bead radius", min_value=0.05, max_value=3.0, step=0.05,
+                            key=_prime_widget("viewer_bead_radius"),
+                            on_change=_store_widget, args=("viewer_bead_radius",),
+                        )
+                        bond_radius = vb.number_input(
+                            "Bond radius", min_value=0.01, max_value=1.0, step=0.01,
+                            key=_prime_widget("viewer_bond_radius"),
+                            on_change=_store_widget, args=("viewer_bond_radius",),
+                        )
+                        topology_bond_max_nm = st.number_input(
+                            "Topology bond max (nm)", min_value=0.05, max_value=2.0, step=0.05,
+                            key=_prime_widget("viewer_topology_bond_max_nm"),
+                            on_change=_store_widget, args=("viewer_topology_bond_max_nm",),
+                        )
+                    view_path = system_gro if selected == "Full solvated system" else protein_cg
+                    stats = render_build_viewer(
+                        view_path,
+                        built,
+                        height=800,
+                        show_connectivity=bool(show_connectivity),
+                        bead_radius=float(bead_radius),
+                        bond_radius=float(bond_radius),
+                        topology_bond_max_nm=float(topology_bond_max_nm),
+                    )
+                    if view_path.suffix.lower() == ".gro":
+                        st.caption(
+                            f"Viewer: {stats['bonds']} protein bonds drawn, "
+                            f"{stats['skipped_long']} long topology contacts skipped."
+                        )
                 else:
                     st.info("No generated structure is available for preview.")
             else:
@@ -654,13 +700,43 @@ elif step == "Short MD":
                     on_change=_store_widget, args=("short_md_view_stride",),
                 )
 
+                toggle_a, toggle_b, toggle_c, toggle_d = st.columns(4)
+                toggle_a.toggle(
+                    "Protein", key=_prime_widget("short_md_view_protein"),
+                    on_change=_store_widget, args=("short_md_view_protein",),
+                )
+                toggle_b.toggle(
+                    "Free molecules", key=_prime_widget("short_md_view_solute"),
+                    on_change=_store_widget, args=("short_md_view_solute",),
+                )
+                toggle_c.toggle(
+                    "Water", key=_prime_widget("short_md_view_water"),
+                    on_change=_store_widget, args=("short_md_view_water",),
+                )
+                toggle_d.toggle(
+                    "Ions", key=_prime_widget("short_md_view_ions"),
+                    on_change=_store_widget, args=("short_md_view_ions",),
+                )
+
                 selected = next(row for row in trajectory_rows if row["name"] == st.session_state.short_md_view_stage)
                 gro = Path(selected["gro"])
                 xtc = Path(selected["xtc"])
                 if gro.is_file() and xtc.is_file():
                     try:
-                        frames = render_trajectory(gro, xtc, stride=int(st.session_state.short_md_view_stride), height=680)
-                        st.caption(f"Animated trajectory preview · {frames} displayed frames.")
+                        frames = render_trajectory(
+                            gro,
+                            xtc,
+                            stride=int(st.session_state.short_md_view_stride),
+                            height=700,
+                            show_protein=bool(st.session_state.short_md_view_protein),
+                            show_solute=bool(st.session_state.short_md_view_solute),
+                            show_water=bool(st.session_state.short_md_view_water),
+                            show_ions=bool(st.session_state.short_md_view_ions),
+                        )
+                        st.caption(
+                            f"{str(st.session_state.short_md_view_stage).upper()} trajectory preview: "
+                            f"{frames} displayed frames."
+                        )
                     except Exception as exc:
                         st.warning(f"Trajectory preview is unavailable: {exc}")
 
