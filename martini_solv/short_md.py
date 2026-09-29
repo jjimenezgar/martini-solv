@@ -44,6 +44,7 @@ class StageResult:
     gro: Path
     tpr: Path
     xtc: Path | None
+    edr: Path | None
     elapsed_s: float
     ns_day: float | None
 
@@ -210,7 +211,7 @@ def run_short_md(system: Path, config: ShortMDConfig, timeout_s: int = 900) -> S
     ], work, log, timeout_s)
     em_base = work / f"{tag}_minimization"
     elapsed, stdout = _command(["gmx", "mdrun", "-deffnm", em_base.name, "-nt", str(config.threads)], work, log, timeout_s)
-    results = [StageResult("minimization", em_base.with_suffix(".gro"), em_tpr, None, elapsed, _ns_day(stdout))]
+    results = [StageResult("minimization", em_base.with_suffix(".gro"), em_tpr, None, em_base.with_suffix(".edr"), elapsed, _ns_day(stdout))]
 
     prev_gro = em_base.with_suffix(".gro")
     prev_cpt = em_base.with_suffix(".cpt")
@@ -228,11 +229,13 @@ def run_short_md(system: Path, config: ShortMDConfig, timeout_s: int = 900) -> S
         _command(command, work, log, timeout_s)
         elapsed, stdout = _command(["gmx", "mdrun", "-deffnm", base.name, "-nt", str(config.threads)], work, log, timeout_s)
         xtc = base.with_suffix(".xtc")
+        edr = base.with_suffix(".edr")
         results.append(StageResult(
             stage.name,
             base.with_suffix(".gro"),
             base.with_suffix(".tpr"),
             xtc if xtc.is_file() else None,
+            edr if edr.is_file() else None,
             elapsed,
             _ns_day(stdout),
         ))
@@ -241,6 +244,100 @@ def run_short_md(system: Path, config: ShortMDConfig, timeout_s: int = 900) -> S
 
     return ShortMDResult(work, results, log)
 
+
+@dataclass
+class AnalysisResult:
+    kind: str
+    x_label: str
+    y_label: str
+    points: list[tuple[float, float]]
+    output_path: Path
+
+
+def parse_xvg(path: Path) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+    for raw in path.read_text(errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", "@")):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            points.append((float(parts[0]), float(parts[1])))
+        except ValueError:
+            continue
+    return points
+
+
+def run_short_md_analysis(
+    kind: str,
+    tpr: Path,
+    xtc: Path | None,
+    edr: Path | None,
+    output_dir: Path,
+) -> AnalysisResult:
+    """Run RMSD/RMSF or box-density analysis for one selected Short MD stage."""
+    normalized = kind.strip().lower()
+    if normalized not in {"rmsd", "rmsf", "density"}:
+        raise ValueError("Analysis must be rmsd, rmsf or density")
+    gmx = shutil.which("gmx")
+    if not gmx:
+        raise RuntimeError("GROMACS is not available")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if normalized in {"rmsd", "rmsf"}:
+        if not tpr.is_file() or xtc is None or not xtc.is_file():
+            raise FileNotFoundError("The selected stage needs both TPR and XTC files")
+        index_path = output_dir / "protein_backbone.ndx"
+        select = subprocess.run(
+            [gmx, "select", "-s", str(tpr), "-on", str(index_path), "-select", "name BB"],
+            cwd=output_dir,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if select.returncode != 0 or not index_path.is_file():
+            detail = (select.stderr or select.stdout or "Could not select BB beads.").strip()
+            raise RuntimeError(detail[-2000:])
+
+        output = output_dir / f"protein_{normalized}.xvg"
+        if normalized == "rmsd":
+            command = [
+                gmx, "rms", "-s", str(tpr), "-f", str(xtc), "-n", str(index_path),
+                "-o", str(output), "-tu", "ns",
+            ]
+            selection = "0\n0\n"
+            x_label, y_label = "Time (ns)", "RMSD (nm)"
+        else:
+            command = [
+                gmx, "rmsf", "-s", str(tpr), "-f", str(xtc), "-n", str(index_path),
+                "-o", str(output), "-res",
+            ]
+            selection = "0\n"
+            x_label, y_label = "Residue", "RMSF (nm)"
+        result = subprocess.run(
+            command, cwd=output_dir, input=selection, text=True,
+            capture_output=True, check=False,
+        )
+    else:
+        if edr is None or not edr.is_file():
+            raise FileNotFoundError("The selected stage needs an EDR file for density analysis")
+        output = output_dir / "system_density.xvg"
+        command = [gmx, "energy", "-f", str(edr), "-o", str(output), "-tu", "ns"]
+        result = subprocess.run(
+            command, cwd=output_dir, input="Density\n", text=True,
+            capture_output=True, check=False,
+        )
+        x_label, y_label = "Time (ns)", "Density (kg/m³)"
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "GROMACS analysis failed").strip()
+        raise RuntimeError(detail[-2500:])
+    points = parse_xvg(output)
+    if not points:
+        raise RuntimeError(f"{output.name} contains no numeric data")
+    return AnalysisResult(normalized, x_label, y_label, points, output)
 
 def archive(system: Path) -> bytes:
     """Bundle the prepared system plus any completed short protocol."""
