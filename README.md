@@ -6,7 +6,7 @@ An independent, small protein system builder inspired by [MartiniSurf](https://g
 
 ## Install and run
 
-Linux/Conda, GROMACS, martinize2, DSSP and INSANE are required. This is an initial environment specification rather than a tested cross-platform lockfile:
+Linux/Conda, GROMACS, martinize2, DSSP and INSANE are required. The official Martinize2 and INSANE projects install their CLI via the `vermouth` and `insane` Python packages, respectively; `environment.yml` uses pip for those two tools inside Conda. This is an initial environment specification rather than a tested cross-platform lockfile:
 
 ```bash
 mamba env create -f environment.yml

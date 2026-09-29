@@ -6,9 +6,10 @@ dependencies:
   - python=3.11
   - gromacs
   - dssp
-  - martinize2
-  - insane
   - streamlit
   - rdkit
   - pytest
-
+  - pip
+  - pip:
+      - vermouth
+      - insane
