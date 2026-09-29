@@ -941,11 +941,12 @@ elif step == "Short MD":
                 toggle_c.toggle(
                     "Solvent", key=_prime_widget("short_md_view_solvent"),
                     on_change=_store_widget, args=("short_md_view_solvent",),
-                    help="Shows the active solvent: water, or the individual reline components (choline and urea; plus water for wet reline).",
+                    help="Shows the active solvent: water, or Reline as choline + urea + its intrinsic chloride; wet Reline also includes water.",
                 )
                 toggle_d.toggle(
-                    "Ions", key=_prime_widget("short_md_view_ions"),
+                    "Counterions", key=_prime_widget("short_md_view_ions"),
                     on_change=_store_widget, args=("short_md_view_ions",),
+                    help="Shows only neutralizing/free ions. The chloride belonging to Reline is shown with Solvent.",
                 )
 
                 selected = next(row for row in trajectory_rows if row["name"] == st.session_state.short_md_view_stage)
@@ -953,6 +954,12 @@ elif step == "Short MD":
                 xtc = Path(selected["xtc"])
                 if gro.is_file() and xtc.is_file():
                     try:
+                        manifest_path = built / "manifest.json"
+                        reline_chloride_count = 0
+                        if manifest_path.is_file():
+                            manifest = json.loads(manifest_path.read_text())
+                            composition = manifest.get("composition") or {}
+                            reline_chloride_count = int(composition.get("reline_chloride", 0))
                         frames = render_trajectory(
                             gro,
                             xtc,
@@ -962,6 +969,7 @@ elif step == "Short MD":
                             show_solute=bool(st.session_state.short_md_view_solute),
                             show_solvent=bool(st.session_state.short_md_view_solvent),
                             show_ions=bool(st.session_state.short_md_view_ions),
+                            reline_chloride_count=reline_chloride_count,
                         )
                         st.caption(
                             f"{str(st.session_state.short_md_view_stage).upper()} trajectory preview: "
