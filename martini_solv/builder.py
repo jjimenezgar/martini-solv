@@ -92,6 +92,34 @@ def _verify_existing_coordinates_preserved(before: Path, after: Path) -> None:
         )
 
 
+def _reline_coordinate_composition(gro: Path) -> dict[str, int]:
+    """Count Reline components from GRO labels, tolerating PDB/Packmol truncation."""
+    counts = {"CHOL": 0, "UREA": 0, "CL": 0, "W": 0}
+    for residue, atom in _gro_atom_identities(gro):
+        res = residue.upper()
+        name = atom.upper()
+        if res in {"CHOL", "CHO"} and name == "N1":
+            counts["CHOL"] += 1
+        elif res in {"UREA", "URE"} and name == "N1":
+            counts["UREA"] += 1
+        elif res in {"CL", "CL-"} or name in {"CL", "CL-"}:
+            counts["CL"] += 1
+        elif res in {"W", "WF", "SW", "TW", "SOL"} and name in {"W", "WF", "SW", "TW", "OW"}:
+            counts["W"] += 1
+    return counts
+
+
+def _verify_reline_composition(gro: Path, expected: dict[str, float | int]) -> dict[str, int]:
+    actual = _reline_coordinate_composition(gro)
+    for name in ("CHOL", "UREA", "CL", "W"):
+        if actual[name] != int(expected[name]):
+            raise RuntimeError(
+                f"Reline composition mismatch for {name}: requested {int(expected[name])}, "
+                f"found {actual[name]} in system.gro"
+            )
+    return actual
+
+
 def _normalize_insane_ions(gro: Path) -> None:
     """INSANE still writes Martini 2 ion labels; Martini 3 uses NA and CL."""
     lines = gro.read_text().splitlines()
@@ -495,7 +523,8 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
                 to_pack.append((work / template, count))
                 species.append((name, count))
             _pack_reline(work, current, to_pack, config.seed, log)
-            composition = counts
+            actual_counts = _verify_reline_composition(work / "system.gro", counts)
+            composition = {**counts, "coordinate_counts": actual_counts}
         _topology(work, protein, species, go_enabled=config.go)
         (work / "minimization.mdp").write_text(
             "integrator = steep\nnsteps = 5000\nemtol = 100\nemstep = 0.01\n"
