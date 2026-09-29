@@ -71,6 +71,76 @@ def _parse_gro_atoms(path: Path) -> list[dict[str, float | int | str]]:
     return atoms
 
 
+
+def render_free_molecule_mapping(path: Path, height: int = 360) -> list[dict[str, object]]:
+    """Render a generated Martini molecule with bead labels, as in MartiniSurf."""
+    atoms = _parse_gro_atoms(path)
+    labels = [
+        {
+            "label": f"{index}: {str(atom['name']).strip()}",
+            "x": 10.0 * float(atom["x"]),
+            "y": 10.0 * float(atom["y"]),
+            "z": 10.0 * float(atom["z"]),
+        }
+        for index, atom in enumerate(atoms, start=1)
+    ]
+    data = path.read_text(errors="replace")
+    script = f"""
+    <div class="viewer-shell mapping">
+      <div id="viewer_free_molecule" class="viewer"></div>
+      <div class="viewer-badge">Martini bead topology</div>
+    </div>
+    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+    <script>
+      const viewer = $3Dmol.createViewer(
+        document.getElementById("viewer_free_molecule"),
+        {{backgroundColor: "{BG}"}}
+      );
+      viewer.addModel({json.dumps(data)}, "gro");
+      viewer.setStyle({{}}, {{sphere: {{radius: 0.78, color: "{BLUE}"}}}});
+      const labels = {json.dumps(labels)};
+      for (const bead of labels) {{
+        viewer.addLabel(bead.label, {{
+          position: {{x: bead.x, y: bead.y, z: bead.z}},
+          fontColor: "#07131C",
+          backgroundColor: "#F7FBFF",
+          borderColor: "{BLUE}",
+          borderThickness: 1,
+          fontSize: 13,
+          inFront: true
+        }});
+      }}
+      viewer.zoomTo();
+      viewer.render();
+    </script>
+    <style>
+      html, body {{margin:0;padding:0;overflow:hidden;background:{BG};}}
+      .viewer-shell {{
+        position:relative;width:100%;height:{height}px;box-sizing:border-box;
+        border:1px solid rgba(66,199,213,.28);border-radius:16px;
+        overflow:hidden;background:{BG};box-shadow:inset 0 0 42px rgba(53,201,211,.06);
+      }}
+      .viewer {{width:100%;height:{height}px;overflow:hidden;}}
+      .viewer-badge {{
+        position:absolute;left:14px;bottom:14px;padding:8px 10px;
+        border:1px solid rgba(66,199,213,.30);border-radius:999px;
+        background:rgba(7,19,28,.78);color:#F3F7FA;
+        font:700 12px/1.2 sans-serif;pointer-events:none;
+      }}
+    </style>
+    """
+    components.html(script, height=height + 2)
+    return [
+        {
+            "Bead": f"{index}: {str(atom['name']).strip()}",
+            "Residue": str(atom["resn"]).strip(),
+            "x (nm)": round(float(atom["x"]), 4),
+            "y (nm)": round(float(atom["y"]), 4),
+            "z (nm)": round(float(atom["z"]), 4),
+        }
+        for index, atom in enumerate(atoms, start=1)
+    ]
+
 def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
     groups = {"protein": set(), "water": set(), "ions": set(), "solute": set()}
     if not gro_path or not gro_path.exists():
