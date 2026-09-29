@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.venv/
+builds/
+*.zip
+*.log
+*.tpr
+*.trr
+*.xtc
+*.edr
+*.cpt
+
