@@ -287,8 +287,7 @@ def render_build_viewer(
         <span><i style="background:#B0BEC5"></i>Water</span>
         <span><i style="background:#7E57C2"></i>Choline</span>
         <span><i style="background:#FFB74D"></i>Urea</span>
-        <span><i style="background:#EC407A"></i>Reline Cl⁻</span>
-        <span><i style="background:limegreen"></i>Counterions</span>
+        <span><i style="background:limegreen"></i>Ions</span>
         <span><i style="background:yellow"></i>Free molecule</span>
       </div>
     </div>
@@ -445,12 +444,14 @@ def render_trajectory(
     )
     # The GRO->PDB trajectory conversion uses stable three-character viewer
     # labels so solvent components remain selectable in 3Dmol.
+    gro_components = _component_resnames(gro_path)
     components_map = {
         "water": ["WAT"],
         "choline": ["CHO"],
         "urea": ["URE"],
         "reline_chloride": ["RCL"],
-        "ions": ["ICL", "INA"],
+        "ions": ["ICL", "INA", *[name[:3] for name in gro_components.get("ions", []) if name.upper() not in {"CL", "CL-", "NA", "NA+"}]],
+        "solute": sorted({name[:3] for name in gro_components.get("solute", [])}),
     }
     script = f"""
     <div class="viewer-shell short-md">
@@ -475,10 +476,10 @@ def render_trajectory(
         viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: 0.462, color: "#B0BEC5", opacity: 0.62}}}});
       }}
       if ({json.dumps(bool(show_solvent))} && components.choline.length) {{
-        viewer.setStyle({{resn: components.choline}}, {{sphere: {{radius: 0.605, color: "#7E57C2"}}}});
+        viewer.setStyle({{resn: components.choline}}, {{sphere: {{radius: 0.74, color: "#7E57C2"}}}});
       }}
       if ({json.dumps(bool(show_solvent))} && components.urea.length) {{
-        viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: 0.605, color: "#FFB74D"}}}});
+        viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: 0.70, color: "#FFB74D"}}}});
       }}
       if ({json.dumps(bool(show_solvent))} && components.reline_chloride.length) {{
         viewer.setStyle({{resn: components.reline_chloride}}, {{sphere: {{radius: 0.56, color: "#EC407A"}}}});
