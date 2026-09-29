@@ -305,7 +305,7 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             "integrator = steep\nnsteps = 5000\nemtol = 100\nemstep = 0.01\n"
             "cutoff-scheme = Verlet\nnstlist = 20\nrlist = 1.1\n"
             "vdwtype = cut-off\nvdw-modifier = Potential-shift-verlet\nrvdw = 1.1\n"
-            "coulombtype = reaction-field\nrcoulomb = 1.1\nepsilon-r = 15\nepsilon-rf = inf\n"
+            "coulombtype = reaction-field\nrcoulomb = 1.1\nepsilon-r = 15\nepsilon-rf = 0\n"
         )
         report = {"config": json.loads(config.to_json()), "sources": sources,
                   "composition": composition, "protein_molecules": protein, "status": "grompp pending"}

@@ -46,7 +46,7 @@ def run_short_md(system: Path, time_ps: float = 20.0, threads: int = 2,
         "integrator = md\n" f"dt = 0.001\nnsteps = {nsteps}\n"
         "cutoff-scheme = Verlet\nnstlist = 20\nrlist = 1.1\n"
         "vdwtype = cut-off\nvdw-modifier = Potential-shift-verlet\nrvdw = 1.1\n"
-        "coulombtype = reaction-field\nrcoulomb = 1.1\nepsilon-r = 15\nepsilon-rf = inf\n"
+        "coulombtype = reaction-field\nrcoulomb = 1.1\nepsilon-r = 15\nepsilon-rf = 0\n"
         "tcoupl = v-rescale\ntc-grps = System\ntau-t = 1.0\nref-t = 300\n"
         "pcoupl = no\npbc = xyz\nconstraints = none\n"
         "gen-vel = yes\ngen-temp = 300\ngen-seed = 2026\n"
