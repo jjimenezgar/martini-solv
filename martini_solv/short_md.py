@@ -18,7 +18,9 @@ def _command(args: list[str], cwd: Path, log: Path, timeout: int) -> None:
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(f"Short MD exceeded {timeout} seconds; see {log.name}") from exc
         if result.returncode:
-            raise RuntimeError(f"{args[0]} {args[1]} failed; see {log.name}")
+            handle.flush()
+            detail = log.read_text(errors="replace")[-3500:]
+            raise RuntimeError(f"{args[0]} {args[1]} failed; see {log.name}\n{detail}")
 
 
 def run_short_md(system: Path, time_ps: float = 20.0, threads: int = 2,
