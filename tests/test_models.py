@@ -157,7 +157,7 @@ class TestModels(unittest.TestCase):
                 "    5W       W    8   0.800   0.100   0.100\n"
                 "   2.00000   2.00000   2.00000\n"
             )
-            expected = {"CHOL": 1, "UREA": 2, "CL": 1, "W": 1}
+            expected = {"CHOL": 1, "UREA": 2, "CL": 1, "NA": 0, "W": 1}
             actual = _verify_reline_composition(gro, expected)
             self.assertEqual(actual, expected)
 
@@ -166,3 +166,25 @@ class TestModels(unittest.TestCase):
         self.assertAlmostEqual(float(counts["target_density_g_cm3"]), 1.20, places=6)
         self.assertAlmostEqual(float(counts["dry_formula_units_per_nm3"]), 2.782, places=3)
 
+
+
+    def test_reline_composition_accepts_extra_counterions(self):
+        with TemporaryDirectory() as directory:
+            gro = Path(directory) / "system.gro"
+            gro.write_text(
+                "charged reline\n10\n"
+                "    1CHO    N1    1   0.100   0.100   0.100\n"
+                "    1CHO    OH    2   0.200   0.100   0.100\n"
+                "    2URE    N1    3   0.300   0.100   0.100\n"
+                "    2URE    UP    4   0.400   0.100   0.100\n"
+                "    2URE    UN    5   0.500   0.100   0.100\n"
+                "    3URE    N1    6   0.600   0.100   0.100\n"
+                "    4CL     CL    7   0.700   0.100   0.100\n"
+                "    5CL     CL    8   0.800   0.100   0.100\n"
+                "    6CL     CL    9   0.900   0.100   0.100\n"
+                "    7W       W   10   1.000   0.100   0.100\n"
+                "   2.00000   2.00000   2.00000\n"
+            )
+            expected = {"CHOL": 1, "UREA": 2, "CL": 3, "NA": 0, "W": 1}
+            actual = _verify_reline_composition(gro, expected)
+            self.assertEqual(actual, expected)

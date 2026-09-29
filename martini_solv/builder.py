@@ -93,8 +93,8 @@ def _verify_existing_coordinates_preserved(before: Path, after: Path) -> None:
 
 
 def _reline_coordinate_composition(gro: Path) -> dict[str, int]:
-    """Count Reline components from GRO labels, tolerating PDB/Packmol truncation."""
-    counts = {"CHOL": 0, "UREA": 0, "CL": 0, "W": 0}
+    """Count Reline components and neutralizing ions from GRO coordinates."""
+    counts = {"CHOL": 0, "UREA": 0, "CL": 0, "NA": 0, "W": 0}
     for residue, atom in _gro_atom_identities(gro):
         res = residue.upper()
         name = atom.upper()
@@ -104,6 +104,8 @@ def _reline_coordinate_composition(gro: Path) -> dict[str, int]:
             counts["UREA"] += 1
         elif res in {"CL", "CL-"} or name in {"CL", "CL-"}:
             counts["CL"] += 1
+        elif res in {"NA", "NA+"} or name in {"NA", "NA+"}:
+            counts["NA"] += 1
         elif res in {"W", "WF", "SW", "TW", "SOL"} and name in {"W", "WF", "SW", "TW", "OW"}:
             counts["W"] += 1
     return counts
@@ -111,10 +113,10 @@ def _reline_coordinate_composition(gro: Path) -> dict[str, int]:
 
 def _verify_reline_composition(gro: Path, expected: dict[str, float | int]) -> dict[str, int]:
     actual = _reline_coordinate_composition(gro)
-    for name in ("CHOL", "UREA", "CL", "W"):
-        if actual[name] != int(expected[name]):
+    for name in ("CHOL", "UREA", "CL", "NA", "W"):
+        if actual[name] != int(expected.get(name, 0)):
             raise RuntimeError(
-                f"Reline composition mismatch for {name}: requested {int(expected[name])}, "
+                f"Reline composition mismatch for {name}: requested {int(expected.get(name, 0))}, "
                 f"found {actual[name]} in system.gro"
             )
     return actual
@@ -479,8 +481,13 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             else:
                 raise
         protein = _molecules(work / "protein.top")
-        if config.solvent == "reline" and abs(_protein_net_charge(work)) > 0.001:
-            raise ValueError("DES mode currently requires an electrically neutral protein; no counterion correction is implemented")
+        protein_charge = _protein_net_charge(work)
+        rounded_protein_charge = int(round(protein_charge))
+        if abs(protein_charge - rounded_protein_charge) > 0.01:
+            raise ValueError(
+                f"Protein net charge {protein_charge:.3f} is not close to an integer; "
+                "automatic counterion neutralization would be ambiguous"
+            )
         run(["gmx", "editconf", "-f", "protein_cg.pdb", "-o", "boxed.gro", "-c", "-d",
              str(config.box_distance_nm), "-bt", "cubic"], work, log)
         templates = []
@@ -512,16 +519,33 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             if len(box) != 3 or min(box) <= 0:
                 raise ValueError("Invalid GRO box")
             counts = reline_counts(math.prod(box) ** (1 / 3), config.water_fraction, config.reline_density_g_cm3)
+            # Reline itself is neutral: CHOL(+1):CL(-1):UREA = 1:1:2.
+            # Add only the extra ions required to neutralize the protein.
+            neutralizing_na = max(0, -rounded_protein_charge)
+            neutralizing_cl = max(0, rounded_protein_charge)
+            counts["NA"] = neutralizing_na
+            counts["CL"] = int(counts["CL"]) + neutralizing_cl
+            counts["reline_chloride"] = int(counts["CHOL"])
+            counts["neutralizing_NA"] = neutralizing_na
+            counts["neutralizing_CL"] = neutralizing_cl
+            counts["protein_net_charge"] = protein_charge
+
             # The published choline/urea coordinates are packaged in the cited DES model repository.
             (work / "chloride.gro").write_text("Chloride\n1\n    1CL     CL    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
+            (work / "sodium.gro").write_text("Sodium\n1\n    1NA     NA    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
             (work / "water.gro").write_text("Water\n1\n    1W       W    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
             to_pack = [(gro, spec.count) for spec, gro, _ in templates]
             for name, template in (
-                ("CHOL", "choline.gro"), ("UREA", "urea.gro"), ("CL", "chloride.gro"), ("W", "water.gro")
+                ("CHOL", "choline.gro"),
+                ("UREA", "urea.gro"),
+                ("CL", "chloride.gro"),
+                ("NA", "sodium.gro"),
+                ("W", "water.gro"),
             ):
-                count = int(counts[name])
-                to_pack.append((work / template, count))
-                species.append((name, count))
+                count = int(counts.get(name, 0))
+                if count:
+                    to_pack.append((work / template, count))
+                    species.append((name, count))
             _pack_reline(work, current, to_pack, config.seed, log)
             actual_counts = _verify_reline_composition(work / "system.gro", counts)
             composition = {**counts, "coordinate_counts": actual_counts}
