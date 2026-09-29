@@ -76,19 +76,23 @@ def _molecule_type(itp: Path) -> str:
     raise ValueError(f"No [ moleculetype ] in {itp}")
 
 
-def _protein_net_charge(work: Path) -> float:
+def _itp_net_charge(name: Path) -> float:
     total = 0.0
-    for name in (line for line in work.glob("*.itp") if line.name.startswith("molecule_")):
-        inside = False
-        for raw in name.read_text().splitlines():
-            line = raw.split(";", 1)[0].strip()
-            if line.startswith("["):
-                inside = bool(re.match(r"\[\s*atoms\s*\]", line, re.I))
-            elif inside and line:
-                fields = line.split()
-                if len(fields) >= 7:
-                    total += float(fields[6])
+    inside = False
+    for raw in name.read_text().splitlines():
+        line = raw.split(";", 1)[0].strip()
+        if line.startswith("["):
+            inside = bool(re.match(r"\[\s*atoms\s*\]", line, re.I))
+        elif inside and line:
+            fields = line.split()
+            if len(fields) >= 7:
+                total += float(fields[6])
     return total
+
+
+def _protein_net_charge(work: Path) -> float:
+    return sum(_itp_net_charge(path) for path in work.glob("*.itp") if path.name not in FF_NAMES
+               and path.name not in {"choline.itp", "urea.itp"})
 
 
 def _insert(work: Path, current: Path, template: Path, count: int, name: str, seed: int, log: Path) -> Path:
@@ -172,6 +176,8 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         templates = []
         for spec in config.solutes:
             gro, itp = _map_solute(work, spec.name, spec.smiles, log)
+            if abs(_itp_net_charge(itp)) > 0.001:
+                raise ValueError(f"Charged additional molecule {spec.name} requires explicit counterions; not yet supported")
             templates.append((spec, gro, itp))
         current = work / "boxed.gro"
         for index, (spec, gro, _) in enumerate(templates):

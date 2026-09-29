@@ -26,7 +26,7 @@ For reline (ChCl:urea 1:2) at requested water mole fraction 0.10:
 python -m martini_solv.cli --pdb 1ubq.pdb --out builds/ubiquitin_reline --solvent reline --salt 0 --water-fraction 0.10
 ```
 
-For optional freely dissolved small molecules: add rows in Streamlit or use `--solute NAME:SMILES:COUNT` multiple times. This path requires a separate `martini_mapper` executable and its compatible dependencies; [MartiniSurf's integration](https://github.com/jjimenezgar/MartiniSurf/blob/master/streamlit_app/linker_generator.py) documents the same CLI invocation. A generated topology must be scientifically reviewed for chemical accuracy, net charge and applicability to the chosen solvent. The core verifies its `.gro`/`.itp` outputs and fails explicitly if unavailable.
+For optional freely dissolved small molecules: add rows in Streamlit or use `--solute NAME:SMILES:COUNT` multiple times. This path requires a separate `martini_mapper` executable and its compatible dependencies; [MartiniSurf's integration](https://github.com/jjimenezgar/MartiniSurf/blob/master/streamlit_app/linker_generator.py) documents the same CLI invocation. Only neutral additional molecules are currently accepted. A generated topology must be scientifically reviewed for chemical accuracy and applicability to the chosen solvent. The core verifies its `.gro`/`.itp` outputs and fails explicitly if unavailable.
 
 ## Solvent models and limitations
 
