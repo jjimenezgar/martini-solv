@@ -1,26 +1,162 @@
-"""Small visual vocabulary inspired by MartiniSurf, with a teal accent."""
+"""MartiniSurf-inspired visual system for MartiniSolv."""
 
 STYLE = """
 <style>
-:root { --bg: #0C0D12; --panel: #15171F; --line: #303441;
-        --accent: #38C6B4; --ink: #F4F5F7; --muted: #9DA3AE; }
-.stApp { background: var(--bg); color: var(--ink); }
-[data-testid="stSidebar"] { background: #090A0F; border-right: 1px solid var(--line); }
-.block-container { max-width: 1180px; padding-top: 2.7rem; }
-.hero { padding: 1.6rem 0 1rem; border-bottom: 1px solid var(--line); margin-bottom: 1.5rem; }
-.eyebrow { color: var(--accent); font-size: .76rem; letter-spacing: .12em; font-weight: 800; }
-.hero h1 { color: var(--accent); font-size: clamp(2.5rem, 5vw, 4.3rem);
-           letter-spacing: -.05em; line-height: 1; margin: .4rem 0; }
-.hero p, .subtle { color: var(--muted); }
-.panel { background: var(--panel); border: 1px solid var(--line);
-         border-radius: 14px; padding: 1.25rem; margin: 1rem 0;
-         box-shadow: 0 8px 22px rgba(0,0,0,.2); }
-.panel h3 { margin: 0 0 .35rem; }
-.pill { display: inline-block; margin-right: .4rem; padding: .3rem .65rem;
-        border: 1px solid var(--line); border-radius: 999px;
-        background: #1A1D27; font-size: .8rem; color: var(--accent); }
-div[data-testid="stMetric"] { background: var(--panel); border: 1px solid var(--line);
-                             border-radius: 10px; padding: .7rem; }
+:root {
+  --ms-bg: #090A0F;
+  --ms-panel: #15171F;
+  --ms-input: #10131B;
+  --ms-elevated: #1A1D27;
+  --ms-line: #303441;
+  --ms-line-strong: #405063;
+  --ms-text: #F4F5F7;
+  --ms-muted: #9DA3AE;
+  --ms-teal: #42C7D5;
+  --ms-pink: #FF4FA3;
+  --ms-pink-hover: #FF69B2;
+}
+.stApp {
+  background: var(--ms-bg);
+  color: var(--ms-text);
+}
+.block-container {
+  max-width: 1440px;
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+[data-testid="stSidebar"] {
+  background: #07080C;
+  border-right: 1px solid var(--ms-line);
+}
+.ms-side-title {
+  color: var(--ms-text);
+  font-size: 1.25rem;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  margin-bottom: .15rem;
+}
+.ms-side-flow {
+  margin-top: 1rem;
+  color: var(--ms-muted);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+.ms-panel-title {
+  color: var(--ms-text);
+  font-size: 1.08rem;
+  font-weight: 830;
+  margin: .15rem 0 1rem;
+}
+.ms-empty-preview {
+  min-height: 430px;
+  border: 1px dashed var(--ms-line-strong);
+  border-radius: 12px;
+  background: var(--ms-panel);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 2rem;
+}
+.ms-empty-preview strong {
+  color: var(--ms-text);
+  font-size: 1.25rem;
+}
+.ms-empty-preview span {
+  display: block;
+  color: var(--ms-muted);
+  margin-top: .5rem;
+}
+div[data-testid="stMetric"] {
+  background: var(--ms-panel);
+  border: 1px solid var(--ms-line);
+  border-radius: 10px;
+  padding: .75rem .85rem;
+}
+div[data-testid="stMetric"] label,
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+  color: var(--ms-text) !important;
+}
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea,
+div[data-testid="stNumberInput"] input,
+div[data-baseweb="select"] > div {
+  background: var(--ms-input) !important;
+  color: var(--ms-text) !important;
+  border-color: var(--ms-line) !important;
+  border-radius: 8px !important;
+}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus,
+div[data-testid="stNumberInput"] input:focus,
+div[data-baseweb="select"] > div:focus-within {
+  border-color: var(--ms-teal) !important;
+  box-shadow: 0 0 0 .15rem rgba(66,199,213,.12) !important;
+}
+div[data-testid="stNumberInput"] button {
+  background: var(--ms-elevated) !important;
+  color: var(--ms-muted) !important;
+  border-color: var(--ms-line) !important;
+}
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploaderDropzone"] {
+  background: var(--ms-panel) !important;
+  border: 1px dashed var(--ms-line-strong) !important;
+  border-radius: 10px !important;
+}
+[data-testid="stExpander"] {
+  background: var(--ms-panel);
+  border: 1px solid var(--ms-line);
+  border-radius: 10px;
+}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary p {
+  color: var(--ms-text) !important;
+  font-weight: 760;
+}
+.stButton > button,
+.stDownloadButton > button {
+  border-radius: 8px !important;
+  border: 1px solid var(--ms-line) !important;
+  background: var(--ms-elevated) !important;
+  color: var(--ms-text) !important;
+  min-height: 2.45rem;
+  font-weight: 760;
+}
+.stButton > button:hover,
+.stDownloadButton > button:hover {
+  border-color: var(--ms-teal) !important;
+}
+.stButton > button[kind="primary"] {
+  background: var(--ms-pink) !important;
+  border-color: var(--ms-pink) !important;
+  color: #090A0F !important;
+  font-weight: 850 !important;
+  box-shadow: 0 8px 22px rgba(255,79,163,.18);
+}
+.stButton > button[kind="primary"]:hover {
+  background: var(--ms-pink-hover) !important;
+  border-color: var(--ms-pink-hover) !important;
+}
+div[data-testid="stToggle"] [role="switch"][aria-checked="true"] {
+  background-color: var(--ms-teal) !important;
+}
+div[data-testid="stDataFrame"] {
+  border: 1px solid var(--ms-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+div[data-testid="stAlert"] {
+  border-radius: 10px;
+  border: 1px solid var(--ms-line);
+}
+label, p, span {
+  color: inherit;
+}
+@media (max-width: 1050px) {
+  .block-container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
 </style>
 """
-

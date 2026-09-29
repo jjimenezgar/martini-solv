@@ -192,15 +192,41 @@ def _pack_reline(work: Path, boxed: Path, templates: list[tuple[Path, int]], see
         raise RuntimeError("Packmol output atom count does not match the requested composition")
 
 
+def _protein_include_order(work: Path) -> list[str]:
+    """Return martinize2-generated ITPs in the order used by protein.top."""
+    top = work / "protein.top"
+    ordered: list[str] = []
+    if top.is_file():
+        for raw in top.read_text(errors="replace").splitlines():
+            match = re.match(r'\s*#include\s+["<]([^">]+)[">]', raw)
+            if not match:
+                continue
+            name = Path(match.group(1)).name
+            if (work / name).is_file() and name not in ordered:
+                ordered.append(name)
+    return ordered
+
+
 def _topology(work: Path, protein: list[tuple[str, int]], species: list[tuple[str, int]]) -> None:
     generated = sorted(work.glob("*.itp"))
     protein_itps = [p for p in generated if p.name not in FF_NAMES and p.name not in {"choline.itp", "urea.itp"}]
     if not protein_itps:
         raise RuntimeError("Martinize2 produced no protein .itp")
+
     includes = [*FF_NAMES]
     if (work / "choline.itp").exists():
         includes += ["choline.itp", "urea.itp"]
-    includes += [p.name for p in protein_itps]
+
+    # GōMartini and position-restraint files can depend on include ordering.
+    # Prefer martinize2's own protein.top ordering, then append any generated
+    # files that were not explicitly referenced there.
+    for name in _protein_include_order(work):
+        if name not in includes:
+            includes.append(name)
+    for path in protein_itps:
+        if path.name not in includes:
+            includes.append(path.name)
+
     rows = [f'#include "{name}"' for name in includes]
     rows += ["", "[ system ]", "Protein in Martini 3 solvent", "", "[ molecules ]"]
     rows += [f"{name:<16} {count}" for name, count in protein + species if count]
@@ -250,11 +276,36 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         sources = download_models(work, config.solvent == "reline")
         if importlib.util.find_spec("mdtraj") is None:
             raise RuntimeError("mdtraj is required for protein secondary structure")
-        martinize = ["martinize2", "-f", "protein_clean.pdb", "-x", "protein_cg.pdb", "-o", "protein.top",
-                     "-ff", "martini3001", "-dssp", "-ignh"]
+        martinize = [
+            "martinize2", "-f", "protein_clean.pdb", "-x", "protein_cg.pdb", "-o", "protein.top",
+            "-ff", "martini3001", "-name", config.molecule_name, "-maxwarn", str(config.maxwarn), "-ignh",
+        ]
+        merge = config.merge_chains.strip()
+        if merge and "," in merge:
+            martinize += ["-merge", merge]
+        if config.position_restraints != "none":
+            martinize += ["-p", config.position_restraints, "-pf", str(config.position_restraint_force)]
         if config.elastic:
             martinize += ["-elastic", "-ef", str(config.elastic_force), "-el", "0.5", "-eu", "0.9"]
-        run(martinize, work, log)
+        if config.go:
+            martinize += ["-go", "-go-eps", str(config.go_eps)]
+        if config.dssp:
+            martinize += ["-dssp"]
+        martinize += [str(token) for token in config.martinize_extra_args if str(token).strip()]
+
+        # Match MartiniSurf's resilient DSSP behavior: retry once without DSSP
+        # when the runtime DSSP setup is incompatible.
+        try:
+            run(martinize, work, log)
+        except RuntimeError:
+            if config.dssp and "-dssp" in martinize:
+                retry = [token for token in martinize if token != "-dssp"]
+                with log.open("a") as handle:
+                    handle.write("\nDSSP-enabled martinize2 failed; retrying without -dssp.\n")
+                run(retry, work, log)
+                martinize = retry
+            else:
+                raise
         protein = _molecules(work / "protein.top")
         if config.solvent == "reline" and abs(_protein_net_charge(work)) > 0.001:
             raise ValueError("DES mode currently requires an electrically neutral protein; no counterion correction is implemented")
@@ -308,7 +359,8 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             "coulombtype = reaction-field\nrcoulomb = 1.1\nepsilon-r = 15\nepsilon-rf = 0\n"
         )
         report = {"config": json.loads(config.to_json()), "sources": sources,
-                  "composition": composition, "protein_molecules": protein, "status": "grompp pending"}
+                  "composition": composition, "protein_molecules": protein,
+                  "martinize_command": martinize, "status": "grompp pending"}
         (work / "manifest.json").write_text(json.dumps(report, indent=2))
         run(["gmx", "grompp", "-f", "minimization.mdp", "-c", "system.gro", "-p", "system.top",
              "-o", "minimization.tpr", "-maxwarn", "0"], work, log)
