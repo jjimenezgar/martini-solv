@@ -215,6 +215,32 @@ def _topology_prefix_from_martinize(work: Path) -> list[str]:
     return prefix
 
 
+def _normalize_martinize_includes(lines: list[str]) -> list[str]:
+    """Map martinize2's generic Martini include to the pinned local FF file.
+
+    Some martinize2 releases emit '#include "martini.itp"' even when the
+    selected force field is martini3001. MartiniSolv downloads the pinned
+    Martini 3 force field as martini_v3.0.0.itp, so leaving the generic include
+    untouched makes grompp fail with 'Topology include file martini.itp not found'.
+    """
+    normalized: list[str] = []
+    seen_includes: set[str] = set()
+    for raw in lines:
+        match = re.match(r'(\s*#include\s+["<])([^">]+)([">].*)', raw)
+        if match:
+            target = match.group(2)
+            name = Path(target).name
+            if name == "martini.itp":
+                target = FF_NAMES[0]
+                name = FF_NAMES[0]
+                raw = f'{match.group(1)}{target}{match.group(3)}'
+            if name in seen_includes:
+                continue
+            seen_includes.add(name)
+        normalized.append(raw)
+    return normalized
+
+
 def _included_itps(lines: list[str]) -> set[str]:
     names: set[str] = set()
     for raw in lines:
@@ -243,7 +269,7 @@ def _topology(
     *,
     go_enabled: bool = False,
 ) -> None:
-    prefix = _topology_prefix_from_martinize(work)
+    prefix = _normalize_martinize_includes(_topology_prefix_from_martinize(work))
 
     # Some martinize2 releases add this define themselves; keep it exactly where
     # they placed it. If a release generated Gō files but omitted the define,

@@ -74,3 +74,22 @@ class TestModels(unittest.TestCase):
             self.assertEqual(text.count('#include "Protein.itp"'), 1)
             self.assertIn("Protein          1", text)
             self.assertIn("W                20", text)
+
+    def test_generic_martini_include_is_normalized(self):
+        with TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / "martini_v3.0.0.itp").write_text("[ defaults ]\n1 1 yes 1.0 1.0\n")
+            (work / "martini_v3.0.0_ions_v1.itp").write_text("; ions\n")
+            (work / "martini_v3.0.0_solvents_v1.itp").write_text("; solvents\n")
+            (work / "Protein.itp").write_text("[ moleculetype ]\nProtein 1\n[ atoms ]\n1 P5 1 MET BB 1 0\n")
+            (work / "protein.top").write_text(
+                '#include "martini.itp"\n'
+                '#include "Protein.itp"\n\n'
+                '[ system ]\nProtein\n\n'
+                '[ molecules ]\nProtein 1\n'
+            )
+            _topology(work, [("Protein", 1)], [("W", 20)], go_enabled=False)
+            text = (work / "system.top").read_text()
+            self.assertNotIn('#include "martini.itp"', text)
+            self.assertIn('#include "martini_v3.0.0.itp"', text)
+            self.assertEqual(text.count('#include "martini_v3.0.0.itp"'), 1)
