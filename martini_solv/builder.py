@@ -192,46 +192,105 @@ def _pack_reline(work: Path, boxed: Path, templates: list[tuple[Path, int]], see
         raise RuntimeError("Packmol output atom count does not match the requested composition")
 
 
-def _protein_include_order(work: Path) -> list[str]:
-    """Return martinize2-generated ITPs in the order used by protein.top."""
+def _topology_prefix_from_martinize(work: Path) -> list[str]:
+    """Preserve martinize2 preprocessor/include ordering up to [ system ].
+
+    This is important for GōMartini: martinize2 can emit #define directives and
+    auxiliary atom-type/nonbonded includes that must appear before Protein.itp.
+    Reconstructing the topology from a sorted list of ITP files loses that order
+    and leads to errors such as "Atomtype Protein_1 not found".
+    """
     top = work / "protein.top"
-    ordered: list[str] = []
-    if top.is_file():
-        for raw in top.read_text(errors="replace").splitlines():
-            match = re.match(r'\s*#include\s+["<]([^">]+)[">]', raw)
-            if not match:
-                continue
-            name = Path(match.group(1)).name
-            if (work / name).is_file() and name not in ordered:
-                ordered.append(name)
-    return ordered
+    if not top.is_file():
+        raise RuntimeError("martinize2 did not produce protein.top")
+
+    prefix: list[str] = []
+    for raw in top.read_text(errors="replace").splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("[") and re.match(r"\[\s*(system|molecules)\s*\]", stripped, re.I):
+            break
+        prefix.append(raw)
+    while prefix and not prefix[-1].strip():
+        prefix.pop()
+    return prefix
 
 
-def _topology(work: Path, protein: list[tuple[str, int]], species: list[tuple[str, int]]) -> None:
-    generated = sorted(work.glob("*.itp"))
-    protein_itps = [p for p in generated if p.name not in FF_NAMES and p.name not in {"choline.itp", "urea.itp"}]
-    if not protein_itps:
-        raise RuntimeError("Martinize2 produced no protein .itp")
+def _included_itps(lines: list[str]) -> set[str]:
+    names: set[str] = set()
+    for raw in lines:
+        match = re.match(r'\s*#include\s+["<]([^">]+)[">]', raw)
+        if match:
+            names.add(Path(match.group(1)).name)
+    return names
 
-    includes = [*FF_NAMES]
+
+def _insert_after_forcefield(lines: list[str], additions: list[str]) -> list[str]:
+    if not additions:
+        return lines
+    insert_at = 0
+    for index, raw in enumerate(lines):
+        match = re.match(r'\s*#include\s+["<]([^">]+)[">]', raw)
+        if match and Path(match.group(1)).name == FF_NAMES[0]:
+            insert_at = index + 1
+            break
+    return lines[:insert_at] + additions + lines[insert_at:]
+
+
+def _topology(
+    work: Path,
+    protein: list[tuple[str, int]],
+    species: list[tuple[str, int]],
+    *,
+    go_enabled: bool = False,
+) -> None:
+    prefix = _topology_prefix_from_martinize(work)
+
+    # Some martinize2 releases add this define themselves; keep it exactly where
+    # they placed it. If a release generated Gō files but omitted the define,
+    # add it before all includes.
+    if go_enabled and not any(re.match(r"\s*#define\s+GO_VIRT\b", row) for row in prefix):
+        prefix.insert(0, "#define GO_VIRT")
+
+    included = _included_itps(prefix)
+
+    # Ensure the Martini 3 force field is present. The main force field must be
+    # loaded before molecule definitions and before any auxiliary solvent types.
+    if FF_NAMES[0] not in included:
+        prefix = [f'#include "{FF_NAMES[0]}"', *prefix]
+        included.add(FF_NAMES[0])
+
+    auxiliary = []
+    for name in FF_NAMES[1:]:
+        if name not in included:
+            auxiliary.append(f'#include "{name}"')
+            included.add(name)
     if (work / "choline.itp").exists():
-        includes += ["choline.itp", "urea.itp"]
+        for name in ("choline.itp", "urea.itp"):
+            if name not in included:
+                auxiliary.append(f'#include "{name}"')
+                included.add(name)
+    prefix = _insert_after_forcefield(prefix, auxiliary)
 
-    # GōMartini and position-restraint files can depend on include ordering.
-    # Prefer martinize2's own protein.top ordering, then append any generated
-    # files that were not explicitly referenced there.
-    for name in _protein_include_order(work):
-        if name not in includes:
-            includes.append(name)
-    for path in protein_itps:
-        if path.name not in includes:
-            includes.append(path.name)
+    # protein.top normally includes the protein ITP. Add only the actual
+    # molecule ITP as a fallback; do not blindly include Gō auxiliary files,
+    # because their order/ifdef placement is controlled by martinize2.
+    for molecule_name, _ in protein:
+        candidate = f"{molecule_name}.itp"
+        if (work / candidate).is_file() and candidate not in included:
+            prefix.append(f'#include "{candidate}"')
+            included.add(candidate)
 
-    rows = [f'#include "{name}"' for name in includes]
-    rows += ["", "[ system ]", "Protein in Martini 3 solvent", "", "[ molecules ]"]
+    # Free SMILES-derived species are independent molecule types and can be
+    # included after the martinize2-controlled protein block.
+    for molecule_name, _ in species:
+        candidate = f"{molecule_name}.itp"
+        if (work / candidate).is_file() and candidate not in included:
+            prefix.append(f'#include "{candidate}"')
+            included.add(candidate)
+
+    rows = [*prefix, "", "[ system ]", "Protein in Martini 3 solvent", "", "[ molecules ]"]
     rows += [f"{name:<16} {count}" for name, count in protein + species if count]
     (work / "system.top").write_text("\n".join(rows) + "\n")
-
 
 def _map_solute(work: Path, name: str, smiles: str, log: Path) -> tuple[Path, Path]:
     from rdkit import Chem
@@ -351,7 +410,7 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
                 species.append((name, count))
             _pack_reline(work, current, to_pack, config.seed, log)
             composition = counts
-        _topology(work, protein, species)
+        _topology(work, protein, species, go_enabled=config.go)
         (work / "minimization.mdp").write_text(
             "integrator = steep\nnsteps = 5000\nemtol = 100\nemstep = 0.01\n"
             "cutoff-scheme = Verlet\nnstlist = 20\nrlist = 1.1\n"
