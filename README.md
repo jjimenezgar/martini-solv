@@ -6,7 +6,7 @@ An independent, small protein system builder inspired by [MartiniSurf](https://g
 
 ## Install and run
 
-Linux/Conda, GROMACS, Packmol, martinize2, INSANE, mdtraj and Martini Mapper are installed from the **single** `environment.yml`. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. INSANE currently imports `pkg_resources`, so setuptools is constrained below 81. This environment still needs a full scientific integration run on a Linux machine:
+Linux/Conda, GROMACS, Packmol, martinize2, INSANE, mdtraj and Martini Mapper are installed from the **single** `environment.yml`. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. INSANE currently imports `pkg_resources`, so setuptools is constrained below 81. The Linux environment is exercised by GitHub Actions:
 
 ```bash
 mamba env create -f environment.yml
@@ -50,7 +50,7 @@ The project deliberately excludes surfaces, immobilization, linkers, deposition 
 
 ## Test status
 
-The pure-Python tests are runnable without GROMACS. GitHub Actions creates the actual Conda environment, tests Martini Mapper output, starts Streamlit, and builds a 1UBQ water example through `gmx grompp`. It also checks a small hydrated reline system. Consult the build log and check `gmx grompp` before using any generated files.
+The pure-Python tests are runnable without GROMACS. GitHub Actions creates the actual Conda environment, tests Martini Mapper output, starts Streamlit, and builds 1UBQ in water, hydrated reline, and water with two different SMILES-derived solutes. All three system builds must pass `gmx grompp` with zero warnings. Consult the build log and inspect structures before using generated files for scientific work.
 
 ### Streamlit Community Cloud
 
