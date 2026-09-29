@@ -73,6 +73,25 @@ def _gro_count(gro: Path) -> int:
     return int(gro.read_text().splitlines()[1].strip())
 
 
+def _gro_atom_identities(gro: Path, limit: int | None = None) -> list[tuple[str, str]]:
+    """Return (residue, atom) identities in coordinate order."""
+    lines = gro.read_text(errors="replace").splitlines()
+    count = int(lines[1].strip())
+    if limit is not None:
+        count = min(count, int(limit))
+    return [(row[5:10].strip(), row[10:15].strip()) for row in lines[2:2 + count]]
+
+
+def _verify_existing_coordinates_preserved(before: Path, after: Path) -> None:
+    """Ensure a solvation step did not silently discard inserted solute molecules."""
+    before_ids = _gro_atom_identities(before)
+    after_ids = _gro_atom_identities(after, len(before_ids))
+    if len(after_ids) < len(before_ids) or after_ids != before_ids:
+        raise RuntimeError(
+            "Solvation did not preserve the complete protein/free-molecule coordinate block"
+        )
+
+
 def _normalize_insane_ions(gro: Path) -> None:
     """INSANE still writes Martini 2 ion labels; Martini 3 uses NA and CL."""
     lines = gro.read_text().splitlines()
@@ -451,6 +470,7 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             run(["insane", "-f", str(current), "-o", "system.gro", "-p", "insane.top", "-pbc", "cubic",
                  "-d", "0", "-sol", "W", "-salt", str(config.salt_m), "-charge", "auto"], work, log)
             _normalize_insane_ions(work / "system.gro")
+            _verify_existing_coordinates_preserved(current, work / "system.gro")
             entries = _molecules(work / "insane.top")
             # INSANE's output may list protein and solutes; remove only the already recorded copies.
             for name, count in entries:
@@ -485,6 +505,10 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         )
         report = {"config": json.loads(config.to_json()), "sources": sources,
                   "composition": composition, "protein_molecules": protein,
+                  "free_molecules": [
+                      {"name": spec.name, "count": spec.count, "smiles": spec.smiles}
+                      for spec in config.solutes
+                  ],
                   "martinize_command": martinize, "status": "grompp pending"}
         (work / "manifest.json").write_text(json.dumps(report, indent=2))
         run(["gmx", "grompp", "-f", "minimization.mdp", "-c", "system.gro", "-p", "system.top",

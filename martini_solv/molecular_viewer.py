@@ -14,6 +14,8 @@ BG = "#07131C"
 TRAJ_BG = "#0E0D11"
 
 WATER_RESN = {"W", "WF", "SW", "TW", "SOL"}
+CHOLINE_RESN = {"CHOL"}
+UREA_RESN = {"UREA"}
 ION_RESN = {"NA", "CL", "ION", "K", "CA", "MG", "ZN", "LI", "RB", "CS", "BA", "SR", "F", "BR", "I"}
 
 
@@ -142,7 +144,14 @@ def render_free_molecule_mapping(path: Path, height: int = 360) -> list[dict[str
     ]
 
 def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
-    groups = {"protein": set(), "water": set(), "ions": set(), "solute": set()}
+    groups = {
+        "protein": set(),
+        "water": set(),
+        "choline": set(),
+        "urea": set(),
+        "ions": set(),
+        "solute": set(),
+    }
     if not gro_path or not gro_path.exists():
         return {key: [] for key in groups}
 
@@ -157,6 +166,10 @@ def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
         upper = resn.upper()
         if upper in WATER_RESN:
             groups["water"].add(resn)
+        elif upper in CHOLINE_RESN:
+            groups["choline"].add(resn)
+        elif upper in UREA_RESN:
+            groups["urea"].add(resn)
         elif upper in ION_RESN:
             groups["ions"].add(resn)
         elif "BB" in names or any(name.startswith("SC") for name in names) or any(
@@ -276,7 +289,13 @@ def render_build_viewer(
       viewer.setStyle({{}}, {{sphere: {{radius: {float(bead_radius):.4f}}}}});
       const components = {json.dumps(components_map)};
       if (components.water.length) {{
-        viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "lightgray", opacity: 0.55}}}});
+        viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#B0BEC5", opacity: 0.62}}}});
+      }}
+      if (components.choline.length) {{
+        viewer.setStyle({{resn: components.choline}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#7E57C2"}}}});
+      }}
+      if (components.urea.length) {{
+        viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#FFB74D"}}}});
       }}
       if (components.ions.length) {{
         viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "limegreen"}}}});
@@ -374,7 +393,7 @@ def render_trajectory(
     height: int = 700,
     show_protein: bool = True,
     show_solute: bool = False,
-    show_water: bool = False,
+    show_solvent: bool = False,
     show_ions: bool = False,
 ) -> int:
     """MartiniSurf-style trajectory viewer with large, component-aware beads."""
@@ -391,8 +410,14 @@ def render_trajectory(
       viewer.addModelsAsFrames({json.dumps(pdb)}, "pdb");
       viewer.setStyle({{}}, {{sphere: {{hidden: true}}}});
       const components = {json.dumps(components_map)};
-      if ({json.dumps(bool(show_water))} && components.water.length) {{
-        viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: 0.462, color: "lightgray", opacity: 0.55}}}});
+      if ({json.dumps(bool(show_solvent))} && components.water.length) {{
+        viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: 0.462, color: "#B0BEC5", opacity: 0.62}}}});
+      }}
+      if ({json.dumps(bool(show_solvent))} && components.choline.length) {{
+        viewer.setStyle({{resn: components.choline}}, {{sphere: {{radius: 0.605, color: "#7E57C2"}}}});
+      }}
+      if ({json.dumps(bool(show_solvent))} && components.urea.length) {{
+        viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: 0.605, color: "#FFB74D"}}}});
       }}
       if ({json.dumps(bool(show_ions))} && components.ions.length) {{
         viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: 0.605, color: "limegreen"}}}});

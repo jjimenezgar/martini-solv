@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions, _name_molecule_type, _topology
+from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved
 from martini_solv.models import BuildConfig, reline_counts
 
 
@@ -99,3 +99,44 @@ class TestModels(unittest.TestCase):
             self.assertNotIn('#include "martini.itp"', text)
             self.assertIn('#include "martini_v3.0.0.itp"', text)
             self.assertEqual(text.count('#include "martini_v3.0.0.itp"'), 1)
+
+
+    def test_solvation_preserves_inserted_coordinate_block(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            before = root / "before.gro"
+            after = root / "after.gro"
+            before.write_text(
+                "before\n2\n"
+                "    1PROT   BB    1   0.100   0.100   0.100\n"
+                "    2LIG    C1    2   0.200   0.200   0.200\n"
+                "   1.00000   1.00000   1.00000\n"
+            )
+            after.write_text(
+                "after\n3\n"
+                "    1PROT   BB    1   0.100   0.100   0.100\n"
+                "    2LIG    C1    2   0.200   0.200   0.200\n"
+                "    3W      W    3   0.300   0.300   0.300\n"
+                "   1.00000   1.00000   1.00000\n"
+            )
+            _verify_existing_coordinates_preserved(before, after)
+
+    def test_solvation_detects_missing_inserted_molecule(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            before = root / "before.gro"
+            after = root / "after.gro"
+            before.write_text(
+                "before\n2\n"
+                "    1PROT   BB    1   0.100   0.100   0.100\n"
+                "    2LIG    C1    2   0.200   0.200   0.200\n"
+                "   1.00000   1.00000   1.00000\n"
+            )
+            after.write_text(
+                "after\n2\n"
+                "    1PROT   BB    1   0.100   0.100   0.100\n"
+                "    2W      W    2   0.300   0.300   0.300\n"
+                "   1.00000   1.00000   1.00000\n"
+            )
+            with self.assertRaisesRegex(RuntimeError, "did not preserve"):
+                _verify_existing_coordinates_preserved(before, after)
