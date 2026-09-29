@@ -768,11 +768,20 @@ elif step == "Review & Build":
             manifest = json.loads((built / "manifest.json").read_text())
             composition = manifest.get("composition") or {}
             if config.solvent == "reline" and composition:
-                comp_cols = st.columns(4)
+                comp_cols = st.columns(5)
                 comp_cols[0].metric("Choline", int(composition.get("CHOL", 0)))
                 comp_cols[1].metric("Urea", int(composition.get("UREA", 0)))
                 comp_cols[2].metric("Chloride", int(composition.get("CL", 0)))
-                comp_cols[3].metric("Water beads", int(composition.get("W", 0)))
+                comp_cols[3].metric("Sodium", int(composition.get("NA", 0)))
+                comp_cols[4].metric("Water beads", int(composition.get("W", 0)))
+                neutralizing_cl = int(composition.get("neutralizing_CL", 0))
+                neutralizing_na = int(composition.get("neutralizing_NA", 0))
+                protein_charge = float(composition.get("protein_net_charge", 0.0))
+                if neutralizing_cl or neutralizing_na:
+                    st.caption(
+                        f"Protein net charge: {protein_charge:+.0f} e · automatic neutralization: "
+                        f"{neutralizing_cl} extra CL⁻ and {neutralizing_na} extra NA⁺."
+                    )
                 actual_water = composition.get("x_water_actual")
                 if actual_water is not None:
                     st.caption(
