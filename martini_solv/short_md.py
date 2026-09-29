@@ -377,7 +377,7 @@ def _packaged_topology_text(system: Path) -> str:
         raise FileNotFoundError("system.top is missing from the built system")
     local_itps = {path.name for path in system.glob("*.itp")}
     lines: list[str] = []
-    pattern = re.compile(r'^(\s*#include\s+["<])([^">]+)([">].*)
+    pattern = re.compile(r'^(\\s*#include\\s+["<])([^">]+)([">].*)$')
     for raw in top.read_text(errors="replace").splitlines():
         match = pattern.match(raw)
         if match:
