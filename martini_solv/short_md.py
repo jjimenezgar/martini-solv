@@ -270,6 +270,28 @@ def parse_xvg(path: Path) -> list[tuple[float, float]]:
     return points
 
 
+def _gmx_energy_term_index(gmx: str, edr: Path, term: str, cwd: Path) -> int:
+    """Discover an energy-term index from the GROMACS menu instead of relying on name input."""
+    probe = subprocess.run(
+        [gmx, "energy", "-f", str(edr), "-o", str(cwd / "_probe.xvg")],
+        cwd=cwd,
+        input="\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    menu = (probe.stdout or "") + "\n" + (probe.stderr or "")
+    # GROMACS prints numbered energy terms in columns; match Density exactly.
+    match = re.search(rf"(?m)(?:^|\s)(\d+)\s+{re.escape(term)}(?:\s|$)", menu)
+    if not match:
+        available = " ".join(line.strip() for line in menu.splitlines()[-40:])
+        raise RuntimeError(
+            f"GROMACS energy term {term!r} was not found in the selected EDR. "
+            f"Available menu output: {available[-1800:]}"
+        )
+    return int(match.group(1))
+
+
 def run_short_md_analysis(
     kind: str,
     tpr: Path,
@@ -324,10 +346,15 @@ def run_short_md_analysis(
         if edr is None or not edr.is_file():
             raise FileNotFoundError("The selected stage needs an EDR file for density analysis")
         output = output_dir / "system_density.xvg"
+        density_index = _gmx_energy_term_index(gmx, edr, "Density", output_dir)
         command = [gmx, "energy", "-f", str(edr), "-o", str(output), "-tu", "ns"]
         result = subprocess.run(
-            command, cwd=output_dir, input="Density\n", text=True,
-            capture_output=True, check=False,
+            command,
+            cwd=output_dir,
+            input=f"{density_index}\n",
+            text=True,
+            capture_output=True,
+            check=False,
         )
         x_label, y_label = "Time (ns)", "Density (kg/m³)"
 
