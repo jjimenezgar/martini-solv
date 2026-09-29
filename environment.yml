@@ -1,15 +1,16 @@
 name: martini-solv
 channels:
   - conda-forge
-  - bioconda
 dependencies:
   - python=3.11
   - gromacs
-  - dssp=3.1.4
   - streamlit
   - rdkit
+  - mdtraj
+  - git
   - pytest
   - pip
   - pip:
       - vermouth
       - insane
+      - git+https://github.com/eliobaby/Martini_Mapper.git@3fed95480a5da1c846466afbc899706bf4f60191

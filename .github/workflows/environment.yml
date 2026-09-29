@@ -1,0 +1,34 @@
+name: Scientific environment
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - environment.yml
+      - martini_solv/builder.py
+      - .github/workflows/environment.yml
+jobs:
+  install-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+      - name: Confirm scientific executables and Python packages
+        shell: micromamba-shell {0}
+        run: |
+          python -c "import streamlit, rdkit, mdtraj, vermouth, insane, martini_mapper"
+          martinize2 --version
+          gmx --version
+          insane --help > /dev/null
+      - name: Test Martini Mapper output
+        shell: micromamba-shell {0}
+        run: |
+          python -m martini_mapper Benzene c1ccccc1 --no-xtb --out-dir /tmp/benzene
+          test -s /tmp/benzene/Benzene.gro
+          test -s /tmp/benzene/Benzene.itp
+      - name: Python tests
+        shell: micromamba-shell {0}
+        run: python -m unittest discover -s tests -v

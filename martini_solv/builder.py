@@ -1,11 +1,13 @@
 """Headless Martini 3 builder. External tools are invoked with argv, never a shell."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import re
 import shutil
 import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 
@@ -129,11 +131,11 @@ def _map_solute(work: Path, name: str, smiles: str, log: Path) -> tuple[Path, Pa
     if mol is None:
         raise ValueError(f"Invalid SMILES for {name}")
     # Martini Mapper supports this command form in MartiniSurf; inspect outputs explicitly.
-    if not shutil.which("martini_mapper"):
-        raise RuntimeError("SMILES molecules require the martini_mapper executable; see README")
+    if importlib.util.find_spec("martini_mapper") is None:
+        raise RuntimeError("SMILES molecules require the Martini Mapper module; recreate the Conda environment")
     out = work / f"mapping_{name}"
     out.mkdir()
-    run(["martini_mapper", name, smiles, "--no-xtb", "--out-dir", str(out)], work, log)
+    run([sys.executable, "-m", "martini_mapper", name, smiles, "--no-xtb", "--out-dir", str(out)], work, log)
     gro = out / f"{name}.gro"
     itp = out / f"{name}.itp"
     if not gro.is_file() or not itp.is_file():
@@ -163,11 +165,10 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
     try:
         shutil.copy2(pdb, work / "input.pdb")
         sources = download_models(work, config.solvent == "reline")
-        dssp = shutil.which("mkdssp") or shutil.which("dssp")
-        if not dssp:
-            raise RuntimeError("mkdssp/dssp is required for protein secondary structure")
+        if importlib.util.find_spec("mdtraj") is None:
+            raise RuntimeError("mdtraj is required for protein secondary structure")
         run(["martinize2", "-f", "input.pdb", "-x", "protein_cg.pdb", "-o", "protein.top",
-             "-ff", "martini3001", "-dssp", dssp, "-ignh", "-elastic", "-ef", "700", "-el", "0.5", "-eu", "0.9"], work, log)
+             "-ff", "martini3001", "-dssp", "-ignh", "-elastic", "-ef", "700", "-el", "0.5", "-eu", "0.9"], work, log)
         protein = _molecules(work / "protein.top")
         if config.solvent == "reline" and abs(_protein_net_charge(work)) > 0.001:
             raise ValueError("DES mode currently requires an electrically neutral protein; no counterion correction is implemented")

@@ -6,9 +6,7 @@ An independent, small protein system builder inspired by [MartiniSurf](https://g
 
 ## Install and run
 
-Linux/Conda, GROMACS, martinize2, DSSP and INSANE are required. The official Martinize2 and INSANE projects install their CLI via the `vermouth` and `insane` Python packages, respectively; `environment.yml` uses pip for those two tools inside Conda. This is an initial environment specification rather than a tested cross-platform lockfile:
-
-The environment selects DSSP 3.1.4 because the [Martini protein tutorial](https://cgmartini.nl/docs/tutorials/Legacy/martini3/ProteinsI_Jan2025/) warns that DSSP 4 changed its output format for Martinize2. Conda availability still needs an integration run on a supported Linux machine.
+Linux/Conda, GROMACS, martinize2, INSANE, mdtraj and Martini Mapper are installed from the **single** `environment.yml`. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. This environment still needs a full scientific integration run on a Linux machine:
 
 ```bash
 mamba env create -f environment.yml
@@ -28,7 +26,7 @@ For reline (ChCl:urea 1:2) at requested water mole fraction 0.10:
 python -m martini_solv.cli --pdb 1ubq.pdb --out builds/ubiquitin_reline --solvent reline --salt 0 --water-fraction 0.10
 ```
 
-For optional freely dissolved small molecules: add rows in Streamlit or use `--solute NAME:SMILES:COUNT` multiple times. This path requires a separate `martini_mapper` executable and its compatible dependencies; [MartiniSurf's integration](https://github.com/jjimenezgar/MartiniSurf/blob/master/streamlit_app/linker_generator.py) documents the same CLI invocation. Only neutral additional molecules are currently accepted. A generated topology must be scientifically reviewed for chemical accuracy and applicability to the chosen solvent. The core verifies its `.gro`/`.itp` outputs and fails explicitly if unavailable.
+For optional freely dissolved small molecules: add rows in Streamlit or use `--solute NAME:SMILES:COUNT` multiple times. The environment installs [Martini Mapper](https://github.com/eliobaby/Martini_Mapper) from the same source used by [MartiniSurf](https://github.com/jjimenezgar/MartiniSurf/blob/master/requirements.txt). Only neutral additional molecules are currently accepted. A generated topology must be scientifically reviewed for chemical accuracy and applicability to the chosen solvent. The core verifies its `.gro`/`.itp` outputs and fails explicitly if unavailable.
 
 ## Solvent models and limitations
 
@@ -53,3 +51,7 @@ The project deliberately excludes surfaces, immobilization, linkers, deposition 
 ## Test status
 
 The pure-Python tests are runnable without GROMACS. An end-to-end scientific smoke run requires the Conda environment and upstream model downloads. Consult the build log and check `gmx grompp` before using any generated files.
+
+### Streamlit Community Cloud
+
+Select `app.py`, the `main` branch and **Python 3.11**. Community Cloud recognizes root `environment.yml` and installs its Conda/Python dependencies; there is deliberately no competing `requirements.txt`. Builds download the model files from pinned public GitHub commits, so outgoing internet access is required. Community Cloud has finite resources and may interrupt costly preparation jobs; this first version runs builds synchronously, so a self-hosted Streamlit service or background worker is preferable for larger proteins or dense DES boxes. A green UI or passing Python CI does not mean a scientific build has succeeded.
