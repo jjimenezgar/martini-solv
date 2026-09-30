@@ -221,6 +221,12 @@ def _itp_bead_types(path: Path) -> dict[int, str]:
     return rows
 
 
+def _solute_charge_state(row: dict[str, object]) -> tuple[int, int | None]:
+    charge = int(row.get("net_charge", 0) or 0)
+    bead = row.get("charged_bead")
+    return charge, (int(bead) if bead is not None else None)
+
+
 def _solute_generator() -> None:
     with st.expander("Free molecule generator · SMILES", expanded=True):
         st.caption("Add freely dissolved Martini 3 molecules. No linker, anchor or orientation logic is used.")
@@ -255,6 +261,7 @@ def _solute_generator() -> None:
                     gro, itp = _map_solute(root, species.name, species.smiles, root / "mapper.log")
                 st.session_state.solutes.append(
                     {"name": species.name, "smiles": species.smiles, "count": species.count,
+                     "net_charge": 0, "charged_bead": None,
                      "gro": str(gro), "itp": str(itp)}
                 )
                 _invalidate_build_outputs()
@@ -265,7 +272,11 @@ def _solute_generator() -> None:
         for index, row in enumerate(list(st.session_state.solutes)):
             with st.container(border=True):
                 title, action = st.columns([3, 0.6])
-                title.markdown(f"**{row['name']}** · {row['count']} copies · `{row['smiles']}`")
+                row_charge, row_charged_bead = _solute_charge_state(row)
+                charge_text = f"{row_charge:+d}" if row_charge else "0"
+                title.markdown(
+                    f"**{row['name']}** · {row['count']} copies · charge {charge_text} · `{row['smiles']}`"
+                )
                 if action.button("Remove", key=f"remove_{index}", use_container_width=True):
                     st.session_state.solutes.pop(index)
                     _invalidate_build_outputs()
@@ -284,11 +295,51 @@ def _solute_generator() -> None:
                             )
                         with beads_col:
                             bead_types = _itp_bead_types(itp)
+                            bead_options = sorted(bead_types)
+                            st.markdown("##### Charge assignment")
+                            charge_key = f"solute_charge_{index}"
+                            if charge_key not in st.session_state:
+                                st.session_state[charge_key] = int(row.get("net_charge", 0) or 0)
+                            chosen_charge = st.select_slider(
+                                "Net charge",
+                                options=[-2, -1, 0, 1, 2],
+                                key=charge_key,
+                                help="Applied after neutral-SMILES mapping. Default is 0.",
+                            )
+                            chosen_bead = None
+                            if chosen_charge != 0 and bead_options:
+                                bead_key = f"solute_charged_bead_{index}"
+                                existing_bead = row.get("charged_bead")
+                                if bead_key not in st.session_state:
+                                    st.session_state[bead_key] = (
+                                        int(existing_bead) if existing_bead in bead_options else bead_options[0]
+                                    )
+                                chosen_bead = st.selectbox(
+                                    "Charged bead",
+                                    bead_options,
+                                    key=bead_key,
+                                    format_func=lambda value: f"{value}: {bead_types.get(value, 'bead')}",
+                                    help="The selected bead receives the integer molecular charge in the generated ITP.",
+                                )
+                                st.caption(
+                                    "Manual charge assignment changes the ITP charge column only; "
+                                    "the Martini bead type assigned by Martini Mapper is preserved."
+                                )
+                            if int(row.get("net_charge", 0) or 0) != int(chosen_charge) or row.get("charged_bead") != chosen_bead:
+                                st.session_state.solutes[index]["net_charge"] = int(chosen_charge)
+                                st.session_state.solutes[index]["charged_bead"] = chosen_bead
+                                _invalidate_build_outputs()
+
                             table = []
                             for bead_index, bead in enumerate(bead_rows, start=1):
                                 table.append({
                                     "Bead": bead["Bead"],
                                     "Martini type": bead_types.get(bead_index, "—"),
+                                    "Charge": (
+                                        int(chosen_charge)
+                                        if chosen_charge != 0 and bead_index == chosen_bead
+                                        else 0
+                                    ),
                                     "Residue": bead["Residue"],
                                     "x (nm)": bead["x (nm)"],
                                     "y (nm)": bead["y (nm)"],
@@ -301,8 +352,16 @@ def _solute_generator() -> None:
                             elif bead_types:
                                 st.markdown("##### Bead mapping")
                                 st.table([
-                                    {"Bead": index, "Martini type": bead_type}
-                                    for index, bead_type in sorted(bead_types.items())
+                                    {
+                                        "Bead": bead_index,
+                                        "Martini type": bead_type,
+                                        "Charge": (
+                                            int(chosen_charge)
+                                            if chosen_charge != 0 and bead_index == chosen_bead
+                                            else 0
+                                        ),
+                                    }
+                                    for bead_index, bead_type in sorted(bead_types.items())
                                 ])
                             st.caption(
                                 "This is the Martini topology that will be inserted as a free molecule "
@@ -346,7 +405,14 @@ def _config() -> BuildConfig:
         position_restraints=str(st.session_state.position_restraints),
         maxwarn=int(st.session_state.maxwarn),
         martinize_extra_args=extras,
-        solutes=[Solute(row["name"], row["smiles"], int(row["count"])) for row in st.session_state.solutes],
+        solutes=[
+            Solute(
+                row["name"], row["smiles"], int(row["count"]),
+                int(row.get("net_charge", 0) or 0),
+                (int(row["charged_bead"]) if row.get("charged_bead") is not None else None),
+            )
+            for row in st.session_state.solutes
+        ],
     )
 
 
@@ -838,6 +904,8 @@ elif step == "Review & Build":
                             {
                                 "Molecule": row.get("name", ""),
                                 "Copies requested": int(row.get("count", 0)),
+                                "Charge / molecule": int(row.get("net_charge", 0)),
+                                "Charged bead": row.get("charged_bead") or "—",
                                 "SMILES": row.get("smiles", ""),
                             }
                             for row in free_rows

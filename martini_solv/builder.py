@@ -201,6 +201,50 @@ def _itp_net_charge(name: Path) -> float:
     return total
 
 
+def _assign_itp_net_charge(itp: Path, net_charge: int, bead_index: int | None) -> None:
+    """Adjust one Martini bead so the molecule has the requested integer net charge."""
+    target = int(net_charge)
+    if target == 0:
+        return
+    if bead_index is None or int(bead_index) < 1:
+        raise ValueError("A charged free molecule needs a charged bead selection")
+
+    current_total = _itp_net_charge(itp)
+    delta = float(target) - current_total
+    lines = itp.read_text().splitlines()
+    inside = False
+    updated = False
+    output: list[str] = []
+    for raw in lines:
+        bare = raw.split(";", 1)[0].strip()
+        if bare.startswith("["):
+            inside = bool(re.match(r"\[\s*atoms\s*\]", bare, re.I))
+            output.append(raw)
+            continue
+        if inside and bare and not bare.startswith("#"):
+            fields = bare.split()
+            try:
+                atom_id = int(fields[0])
+            except (ValueError, IndexError):
+                atom_id = -1
+            if atom_id == int(bead_index):
+                if len(fields) < 7:
+                    raise ValueError("Generated ITP atom line does not contain a charge column")
+                fields[6] = f"{float(fields[6]) + delta:.6f}"
+                comment = ""
+                if ";" in raw:
+                    comment = " ;" + raw.split(";", 1)[1]
+                raw = "  " + "  ".join(fields) + comment
+                updated = True
+        output.append(raw)
+
+    if not updated:
+        raise ValueError(f"Charged bead {bead_index} was not found in {itp.name}")
+    itp.write_text("\n".join(output) + "\n")
+    if abs(_itp_net_charge(itp) - target) > 1e-6:
+        raise RuntimeError(f"Could not assign net charge {target:+d} to {itp.name}")
+
+
 def _protein_net_charge(work: Path) -> float:
     return sum(_itp_net_charge(path) for path in work.glob("*.itp") if path.name not in FF_NAMES
                and path.name not in {"choline.itp", "urea.itp"})
@@ -518,17 +562,23 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         templates = []
         for spec in config.solutes:
             gro, itp = _map_solute(work, spec.name, spec.smiles, log)
-            if abs(_itp_net_charge(itp)) > 0.001:
-                raise ValueError(f"Charged additional molecule {spec.name} requires explicit counterions; not yet supported")
+            _assign_itp_net_charge(itp, spec.net_charge, spec.charged_bead)
             templates.append((spec, gro, itp))
         current = work / "boxed.gro"
         species = [(_molecule_type(itp), spec.count) for spec, _, itp in templates]
-        composition = {}
+        free_molecule_charge = sum(int(spec.net_charge) * int(spec.count) for spec, _, _ in templates)
+        total_non_solvent_charge = rounded_protein_charge + free_molecule_charge
+        composition = {
+            "protein_net_charge": protein_charge,
+            "free_molecule_net_charge": free_molecule_charge,
+            "total_non_solvent_charge": total_non_solvent_charge,
+        }
         if config.solvent == "water":
             for index, (spec, gro, _) in enumerate(templates):
                 current = _insert(work, current, gro, spec.count, spec.name, config.seed + index, log)
             run(["insane", "-f", str(current), "-o", "system.gro", "-p", "insane.top", "-pbc", "cubic",
-                 "-d", "0", "-sol", "W", "-salt", str(config.salt_m), "-charge", "auto"], work, log)
+                 "-d", "0", "-sol", "W", "-salt", str(config.salt_m), "-charge",
+                 str(total_non_solvent_charge)], work, log)
             _normalize_insane_ions(work / "system.gro")
             _verify_existing_coordinates_preserved(current, work / "system.gro")
             entries = _molecules(work / "insane.top")
@@ -557,8 +607,8 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
                 )
             # The dry DES is neutral before adding the protein. Add only the
             # extra ions required to neutralize the protein.
-            neutralizing_na = max(0, -rounded_protein_charge)
-            neutralizing_cl = max(0, rounded_protein_charge)
+            neutralizing_na = max(0, -total_non_solvent_charge)
+            neutralizing_cl = max(0, total_non_solvent_charge)
             counts["NA"] = neutralizing_na
             counts["CL"] = int(counts["CL"]) + neutralizing_cl
             counts["intrinsic_chloride"] = int(counts["CHOL"])
@@ -566,6 +616,8 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             counts["neutralizing_NA"] = neutralizing_na
             counts["neutralizing_CL"] = neutralizing_cl
             counts["protein_net_charge"] = protein_charge
+            counts["free_molecule_net_charge"] = free_molecule_charge
+            counts["total_non_solvent_charge"] = total_non_solvent_charge
 
             (work / "chloride.gro").write_text("Chloride\n1\n    1CL     CL    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
             (work / "sodium.gro").write_text("Sodium\n1\n    1NA     NA    1   0.000   0.000   0.000\n   1.00000   1.00000   1.00000\n")
@@ -599,7 +651,8 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         report = {"config": json.loads(config.to_json()), "sources": sources,
                   "composition": composition, "protein_molecules": protein,
                   "free_molecules": [
-                      {"name": spec.name, "count": spec.count, "smiles": spec.smiles}
+                      {"name": spec.name, "count": spec.count, "smiles": spec.smiles,
+                       "net_charge": spec.net_charge, "charged_bead": spec.charged_bead}
                       for spec in config.solutes
                   ],
                   "martinize_command": martinize, "status": "grompp pending"}
