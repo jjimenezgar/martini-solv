@@ -744,12 +744,6 @@ with st.sidebar:
 step = st.session_state.active_step
 
 if step == "Home":
-    logo_path = Path(__file__).resolve().parent / "assets" / "martinisolv_logo.png"
-    if logo_path.is_file():
-        _, logo_col, _ = st.columns([1, 0.28, 1])
-        with logo_col:
-            st.image(logo_path.read_bytes(), width=170)
-
     st.markdown(
         """
         <section class="ms-home-hero">
