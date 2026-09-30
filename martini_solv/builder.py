@@ -618,9 +618,18 @@ def _gro_from_itp(itp: Path, destination: Path, name: str) -> Path:
     return destination
 
 
+def _internal_solute_type(name: str) -> str:
+    """Return a MartiniSolv-owned molecule type that cannot clash with FF built-ins."""
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", name.strip()) or "SOLUTE"
+    if safe[0].isdigit():
+        safe = f"M_{safe}"
+    return f"MSV_{safe}"
+
+
 def _prepare_uploaded_solute(work: Path, name: str, source_itp: Path) -> tuple[Path, Path]:
-    destination_itp = work / f"{name}.itp"
-    _name_molecule_type(source_itp, destination_itp, name)
+    molecule_type = _internal_solute_type(name)
+    destination_itp = work / f"{molecule_type}.itp"
+    _name_molecule_type(source_itp, destination_itp, molecule_type)
     destination_gro = work / f"{name}.gro"
     _gro_from_itp(destination_itp, destination_gro, name)
     return destination_gro, destination_itp
@@ -641,8 +650,10 @@ def _map_solute(work: Path, name: str, smiles: str, log: Path) -> tuple[Path, Pa
     itp = out / f"{name}.itp"
     if not gro.is_file() or not itp.is_file():
         raise RuntimeError(f"Martini Mapper did not produce {gro.name} and {itp.name}")
-    _name_molecule_type(itp, work / itp.name, name)
-    return gro, work / itp.name
+    molecule_type = _internal_solute_type(name)
+    destination_itp = work / f"{molecule_type}.itp"
+    _name_molecule_type(itp, destination_itp, molecule_type)
+    return gro, destination_itp
 
 
 def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
