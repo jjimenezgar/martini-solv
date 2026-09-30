@@ -157,7 +157,7 @@ class TestModels(unittest.TestCase):
                 "    5W       W    8   0.800   0.100   0.100\n"
                 "   2.00000   2.00000   2.00000\n"
             )
-            expected = {"CHOL": 1, "UREA": 2, "CL": 1, "NA": 0, "W": 1}
+            expected = {"CHOL": 1, "UREA": 2, "SOR": 0, "CL": 1, "NA": 0, "W": 1}
             actual = _verify_reline_composition(gro, expected)
             self.assertEqual(actual, expected)
 
@@ -185,7 +185,7 @@ class TestModels(unittest.TestCase):
                 "    7W       W   10   1.000   0.100   0.100\n"
                 "   2.00000   2.00000   2.00000\n"
             )
-            expected = {"CHOL": 1, "UREA": 2, "CL": 3, "NA": 0, "W": 1}
+            expected = {"CHOL": 1, "UREA": 2, "SOR": 0, "CL": 3, "NA": 0, "W": 1}
             actual = _verify_reline_composition(gro, expected)
             self.assertEqual(actual, expected)
 
