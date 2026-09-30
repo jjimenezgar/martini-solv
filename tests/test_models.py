@@ -239,9 +239,12 @@ class TestModels(unittest.TestCase):
             _assign_itp_net_charge(itp, -1, 1)
             self.assertAlmostEqual(_itp_net_charge(itp), -1.0)
 
-    def test_solute_charge_requires_bead(self):
-        with self.assertRaisesRegex(ValueError, "Choose which Martini bead"):
-            Solute("AMP", "CCO", 1, 1, None).validate()
+    def test_solute_charge_metadata_defaults(self):
+        solute = Solute("AMP", "CCO", 1)
+        self.assertEqual(solute.net_charge, 0)
+        self.assertIsNone(solute.charged_bead)
 
-    def test_neutral_solute_charge_defaults(self):
-        Solute("AMP", "CCO", 1).validate()
+    def test_solute_charge_metadata_records_assignment(self):
+        solute = Solute("AMP", "CCO", 3, 1, 2)
+        self.assertEqual(solute.net_charge, 1)
+        self.assertEqual(solute.charged_bead, 2)
