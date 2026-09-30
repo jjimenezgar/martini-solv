@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import re
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -12,18 +13,31 @@ class Solute:
     count: int
     net_charge: int = 0
     charged_bead: int | None = None
+    source: str = "smiles"
+    template_gro: str = ""
+    template_itp: str = ""
 
     def validate(self) -> None:
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,15}", self.name):
             raise ValueError(f"Invalid molecule name: {self.name!r}")
-        if not self.smiles.strip() or self.count < 1:
-            raise ValueError("Each molecule needs SMILES and a positive count")
-        try:
-            from rdkit import Chem
-        except ImportError as exc:
-            raise RuntimeError("RDKit is required for SMILES validation") from exc
-        if Chem.MolFromSmiles(self.smiles) is None:
-            raise ValueError(f"Invalid SMILES for {self.name}")
+        if self.count < 1:
+            raise ValueError("Each molecule needs a positive count")
+        if self.source not in {"smiles", "upload"}:
+            raise ValueError("Free-molecule source must be smiles or upload")
+        if self.source == "smiles":
+            if not self.smiles.strip():
+                raise ValueError("SMILES-generated molecules require a SMILES")
+            try:
+                from rdkit import Chem
+            except ImportError as exc:
+                raise RuntimeError("RDKit is required for SMILES validation") from exc
+            if Chem.MolFromSmiles(self.smiles) is None:
+                raise ValueError(f"Invalid SMILES for {self.name}")
+        else:
+            if not self.template_gro or not self.template_itp:
+                raise ValueError("Uploaded free molecules require both GRO coordinates and an ITP topology")
+            if not Path(self.template_gro).is_file() or not Path(self.template_itp).is_file():
+                raise ValueError("Uploaded GRO/ITP template files are no longer available")
         if not -2 <= int(self.net_charge) <= 2:
             raise ValueError("Free-molecule net charge must be between -2 and +2")
         if int(self.net_charge) != 0 and (self.charged_bead is None or int(self.charged_bead) < 1):
