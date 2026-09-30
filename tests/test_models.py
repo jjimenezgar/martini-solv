@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 from martini_solv.builder import _assign_itp_net_charge, _clean_protein_pdb, _gro_from_itp, _itp_net_charge, _normalize_insane_ions, _name_molecule_type, _prepare_uploaded_solute, _topology, _verify_existing_coordinates_preserved, _verify_free_molecule_topology_counts, _verify_reline_composition
 from martini_solv.models import BuildConfig, Solute, chcl_sorbitol_counts, reline_counts
+from martini_solv.molecular_viewer import _gif_component_map, _gif_frame_indices
 
 
 class TestModels(unittest.TestCase):
@@ -357,3 +358,29 @@ class TestModels(unittest.TestCase):
                 source="upload",
                 template_itp=str(itp),
             ).validate()
+
+
+    def test_gif_frame_indices_are_evenly_sampled(self):
+        indices = _gif_frame_indices(101, max_frames=5)
+        self.assertEqual(indices, [0, 25, 50, 75, 100])
+
+    def test_gif_component_map_matches_viewer_categories(self):
+        with TemporaryDirectory() as directory:
+            gro = Path(directory) / "system.gro"
+            gro.write_text(
+                "gif categories\n8\n"
+                "    1ALA    BB    1   0.100   0.100   0.100\n"
+                "    1ALA   SC1    2   0.200   0.100   0.100\n"
+                "    2LIG    C1    3   0.300   0.100   0.100\n"
+                "    3W       W    4   0.400   0.100   0.100\n"
+                "    4CHO    N1    5   0.500   0.100   0.100\n"
+                "    5CL     CL    6   0.600   0.100   0.100\n"
+                "    6CL     CL    7   0.700   0.100   0.100\n"
+                "    7NA     NA    8   0.800   0.100   0.100\n"
+                "   2.00000   2.00000   2.00000\n"
+            )
+            groups = _gif_component_map(gro, reline_chloride_count=1)
+            self.assertEqual(
+                groups,
+                ["protein", "protein", "solute", "solvent", "solvent", "solvent", "ions", "ions"],
+            )
