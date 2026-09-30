@@ -14,7 +14,6 @@ class Solute:
     net_charge: int = 0
     charged_bead: int | None = None
     source: str = "smiles"
-    template_gro: str = ""
     template_itp: str = ""
 
     def validate(self) -> None:
@@ -34,10 +33,10 @@ class Solute:
             if Chem.MolFromSmiles(self.smiles) is None:
                 raise ValueError(f"Invalid SMILES for {self.name}")
         else:
-            if not self.template_gro or not self.template_itp:
-                raise ValueError("Uploaded free molecules require both GRO coordinates and an ITP topology")
-            if not Path(self.template_gro).is_file() or not Path(self.template_itp).is_file():
-                raise ValueError("Uploaded GRO/ITP template files are no longer available")
+            if not self.template_itp:
+                raise ValueError("Uploaded free molecules require an ITP topology")
+            if not Path(self.template_itp).is_file():
+                raise ValueError("Uploaded ITP topology is no longer available")
         if not -2 <= int(self.net_charge) <= 2:
             raise ValueError("Free-molecule net charge must be between -2 and +2")
         if int(self.net_charge) != 0 and (self.charged_bead is None or int(self.charged_bead) < 1):
