@@ -8,6 +8,7 @@ dependencies:
   - streamlit
   - rdkit
   - mdtraj
+  - pillow
   - git
   - pytest
   - setuptools<81

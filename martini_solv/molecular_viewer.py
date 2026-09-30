@@ -5,8 +5,6 @@ import json
 import re
 from pathlib import Path
 
-import streamlit.components.v1 as components
-
 
 BLUE = "#42C7D5"
 BLUE_LIGHT = "#8FEAF2"
@@ -18,6 +16,12 @@ CHOLINE_RESN = {"CHOL", "CHO"}
 UREA_RESN = {"UREA", "URE"}
 SORBITOL_RESN = {"SOR"}
 ION_RESN = {"NA", "CL", "ION", "K", "CA", "MG", "ZN", "LI", "RB", "CS", "BA", "SR", "F", "BR", "I"}
+
+
+def _components_html(script: str, height: int) -> None:
+    """Import Streamlit lazily so pure parsing/GIF helpers remain testable without Streamlit installed."""
+    import streamlit.components.v1 as components
+    components.html(script, height=height)
 
 
 def render_structure_preview(pdb_text: str, height: int = 430) -> None:
@@ -44,7 +48,7 @@ def render_structure_preview(pdb_text: str, height: int = 430) -> None:
       .viewer {{ width:100%; height:{height}px; overflow:hidden; }}
     </style>
     """
-    components.html(script, height=height + 2)
+    _components_html(script, height=height + 2)
 
 
 def _parse_gro_atoms(path: Path) -> list[dict[str, float | int | str]]:
@@ -575,3 +579,215 @@ def render_trajectory(
     """
     components.html(script, height=height + 2)
     return frames
+
+
+MAX_TRAJECTORY_GIF_FRAMES = 40
+
+
+def _gif_component_for_atom(
+    atom: dict[str, float | int | str],
+    protein_residues: set[tuple[int, str]],
+    intrinsic_cl_remaining: list[int],
+) -> str:
+    resid = int(atom["resid"])
+    resn = str(atom["resn"]).strip().upper()
+    name = str(atom["name"]).strip().upper()
+    if resn in WATER_RESN:
+        return "solvent"
+    if resn in CHOLINE_RESN or resn in UREA_RESN or resn in SORBITOL_RESN:
+        return "solvent"
+    if resn in {"CL", "CL-"}:
+        if intrinsic_cl_remaining[0] > 0:
+            intrinsic_cl_remaining[0] -= 1
+            return "solvent"
+        return "ions"
+    if resn in {"NA", "NA+"} or resn in ION_RESN:
+        return "ions"
+    if (resid, str(atom["resn"]).strip()) in protein_residues:
+        return "protein"
+    if name == "BB" or name.startswith("BB") or name.startswith("SC"):
+        return "protein"
+    return "solute"
+
+
+def _gif_component_map(gro_path: Path, reline_chloride_count: int = 0) -> list[str]:
+    atoms = _parse_gro_atoms(gro_path)
+    by_residue: dict[tuple[int, str], set[str]] = {}
+    for atom in atoms:
+        key = (int(atom["resid"]), str(atom["resn"]).strip())
+        by_residue.setdefault(key, set()).add(str(atom["name"]).strip().upper())
+    protein_residues = {
+        residue
+        for residue, names in by_residue.items()
+        if "BB" in names
+        or any(name.startswith("BB") and name[2:].isdigit() for name in names)
+        or any(name.startswith("SC") for name in names)
+    }
+    intrinsic = [max(0, int(reline_chloride_count))]
+    return [
+        _gif_component_for_atom(atom, protein_residues, intrinsic)
+        for atom in atoms
+    ]
+
+
+def _gif_frame_indices(total_frames: int, max_frames: int = MAX_TRAJECTORY_GIF_FRAMES) -> list[int]:
+    if total_frames <= 0:
+        return []
+    if total_frames <= max_frames:
+        return list(range(total_frames))
+    if max_frames <= 1:
+        return [0]
+    return sorted({
+        round(index * (total_frames - 1) / (max_frames - 1))
+        for index in range(max_frames)
+    })
+
+
+def generate_trajectory_gif(
+    gro_path: Path,
+    xtc_path: Path,
+    output_path: Path,
+    *,
+    show_protein: bool = True,
+    show_solute: bool = False,
+    show_solvent: bool = False,
+    show_ions: bool = False,
+    reline_chloride_count: int = 0,
+    width: int = 720,
+    height: int = 540,
+    fps: int = 10,
+    max_frames: int = MAX_TRAJECTORY_GIF_FRAMES,
+) -> tuple[Path, int]:
+    """Render a compact white-background GIF matching the active trajectory selection."""
+    try:
+        import mdtraj as md
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError("Trajectory GIF generation requires mdtraj and Pillow") from exc
+
+    if not gro_path.is_file() or not xtc_path.is_file():
+        raise FileNotFoundError("The selected GRO/XTC trajectory files are unavailable")
+    if not any((show_protein, show_solute, show_solvent, show_ions)):
+        raise ValueError("Select at least one trajectory component before generating the GIF")
+    if fps < 1:
+        raise ValueError("GIF FPS must be positive")
+
+    traj = md.load(str(xtc_path), top=str(gro_path))
+    if traj.n_frames == 0:
+        raise RuntimeError("The selected trajectory contains no frames")
+
+    frame_indices = _gif_frame_indices(traj.n_frames, max_frames=max_frames)
+    traj = traj[frame_indices]
+    components = _gif_component_map(gro_path, reline_chloride_count)
+    atoms = _parse_gro_atoms(gro_path)
+    if len(components) != traj.n_atoms or len(atoms) != traj.n_atoms:
+        raise RuntimeError("Trajectory atom count does not match the GRO topology")
+
+    visible_components = {
+        "protein": bool(show_protein),
+        "solute": bool(show_solute),
+        "solvent": bool(show_solvent),
+        "ions": bool(show_ions),
+    }
+    visible_indices = [
+        index for index, component in enumerate(components)
+        if visible_components.get(component, False)
+    ]
+    if not visible_indices:
+        raise ValueError("The selected trajectory components contain no atoms")
+
+    # Keep the camera fixed across frames. Center on the protein when visible;
+    # otherwise center on the complete selected set.
+    anchor_indices = [
+        index for index, component in enumerate(components)
+        if component == "protein"
+    ] if show_protein else visible_indices
+    if not anchor_indices:
+        anchor_indices = visible_indices
+
+    xyz = traj.xyz[:, visible_indices, :]
+    anchor_xyz = traj.xyz[:, anchor_indices, :]
+    center = anchor_xyz.mean(axis=(0, 1))
+    centered = xyz - center
+
+    # A fixed oblique projection gives a molecular-looking view while avoiding
+    # browser/headless-Chromium dependencies on Streamlit Cloud.
+    import math
+    ay = math.radians(24.0)
+    ax = math.radians(-18.0)
+    cy, sy = math.cos(ay), math.sin(ay)
+    cx, sx = math.cos(ax), math.sin(ax)
+
+    projected_frames: list[list[tuple[float, float, float, int]]] = []
+    all_xy: list[tuple[float, float]] = []
+    for frame in centered:
+        projected: list[tuple[float, float, float, int]] = []
+        for local_index, coord in enumerate(frame):
+            x, y, z = map(float, coord)
+            x1 = cy * x + sy * z
+            z1 = -sy * x + cy * z
+            y2 = cx * y - sx * z1
+            z2 = sx * y + cx * z1
+            atom_index = visible_indices[local_index]
+            projected.append((x1, y2, z2, atom_index))
+            all_xy.append((x1, y2))
+        projected_frames.append(projected)
+
+    min_x = min(x for x, _ in all_xy)
+    max_x = max(x for x, _ in all_xy)
+    min_y = min(y for _, y in all_xy)
+    max_y = max(y for _, y in all_xy)
+    span_x = max(max_x - min_x, 0.1)
+    span_y = max(max_y - min_y, 0.1)
+    margin = 44.0
+    scale = min((width - 2 * margin) / span_x, (height - 2 * margin) / span_y)
+
+    palette = {
+        "protein_bb": "#168D9B",
+        "protein_sc": "#65C9D4",
+        "solute": "#E2B600",
+        "solvent": "#A8B1B8",
+        "ions": "#48A868",
+    }
+    radii = {
+        "protein": 10,
+        "solute": 9,
+        "solvent": 4,
+        "ions": 6,
+    }
+
+    images = []
+    for projected in projected_frames:
+        image = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(image)
+        # Back-to-front draw order gives simple depth perception.
+        for px, py, pz, atom_index in sorted(projected, key=lambda item: item[2]):
+            component = components[atom_index]
+            atom_name = str(atoms[atom_index]["name"]).strip().upper()
+            if component == "protein":
+                color = palette["protein_bb"] if atom_name.startswith("BB") else palette["protein_sc"]
+            else:
+                color = palette[component]
+            radius = radii[component]
+            sxp = margin + (px - min_x) * scale
+            syp = height - (margin + (py - min_y) * scale)
+            draw.ellipse(
+                [sxp - radius, syp - radius, sxp + radius, syp + radius],
+                fill=color,
+                outline="#4E5A61",
+                width=1,
+            )
+        images.append(image)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(40, round(1000 / fps))
+    images[0].save(
+        output_path,
+        format="GIF",
+        save_all=True,
+        append_images=images[1:],
+        duration=duration_ms,
+        loop=0,
+        optimize=True,
+    )
+    return output_path, len(images)

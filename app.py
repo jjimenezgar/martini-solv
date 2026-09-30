@@ -12,7 +12,7 @@ import streamlit as st
 
 from martini_solv.builder import _itp_net_charge, _map_solute, _prepare_uploaded_solute, build
 from martini_solv.models import BuildConfig, Solute
-from martini_solv.molecular_viewer import render_build_viewer, render_free_molecule_mapping, render_structure_preview, render_trajectory
+from martini_solv.molecular_viewer import generate_trajectory_gif, render_build_viewer, render_free_molecule_mapping, render_structure_preview, render_trajectory
 from martini_solv.short_md import (
     DEFAULT_GROMPP_MAXWARN,
     DEFAULT_STAGE_SETTINGS,
@@ -79,6 +79,8 @@ DEFAULTS = {
     "short_md_view_solute": False,
     "short_md_view_solvent": False,
     "short_md_view_ions": False,
+    "short_md_gif_fps": 10,
+    "short_md_gif_max_frames": 40,
 }
 if st.session_state.get("_martinisolv_state_version") != APP_STATE_VERSION:
     # One-time migration: make the requested defaults visible even in browser
@@ -1366,6 +1368,103 @@ elif step == "Short MD":
                             f"{str(st.session_state.short_md_view_stage).upper()} trajectory preview: "
                             f"{frames} displayed frames."
                         )
+
+                        st.markdown("#### Trajectory GIF")
+                        st.caption(
+                            "Generate a compact white-background GIF from the selected stage and "
+                            "exactly the components currently enabled above."
+                        )
+                        gif_a, gif_b, gif_c = st.columns([0.45, 0.25, 0.30])
+                        gif_fps = gif_b.number_input(
+                            "FPS",
+                            min_value=1,
+                            max_value=20,
+                            step=1,
+                            key=_prime_widget("short_md_gif_fps"),
+                            on_change=_store_widget,
+                            args=("short_md_gif_fps",),
+                        )
+                        gif_frames = gif_c.number_input(
+                            "Max frames",
+                            min_value=5,
+                            max_value=80,
+                            step=5,
+                            key=_prime_widget("short_md_gif_max_frames"),
+                            on_change=_store_widget,
+                            args=("short_md_gif_max_frames",),
+                        )
+                        gif_signature = (
+                            str(st.session_state.short_md_view_stage),
+                            str(gro),
+                            str(xtc),
+                            bool(st.session_state.short_md_view_protein),
+                            bool(st.session_state.short_md_view_solute),
+                            bool(st.session_state.short_md_view_solvent),
+                            bool(st.session_state.short_md_view_ions),
+                            int(gif_fps),
+                            int(gif_frames),
+                        )
+                        if gif_a.button(
+                            "Generate trajectory GIF",
+                            use_container_width=True,
+                            disabled=not any([
+                                bool(st.session_state.short_md_view_protein),
+                                bool(st.session_state.short_md_view_solute),
+                                bool(st.session_state.short_md_view_solvent),
+                                bool(st.session_state.short_md_view_ions),
+                            ]),
+                        ):
+                            with st.spinner("Generating trajectory GIF…"):
+                                try:
+                                    gif_dir = Path(str(st.session_state.get("short_md_work_dir", built / "short_md"))) / "gifs"
+                                    safe_stage = str(st.session_state.short_md_view_stage).replace(" ", "_")
+                                    gif_path = gif_dir / f"MartiniSolv_{safe_stage}_trajectory.gif"
+                                    generated, generated_frames = generate_trajectory_gif(
+                                        gro,
+                                        xtc,
+                                        gif_path,
+                                        show_protein=bool(st.session_state.short_md_view_protein),
+                                        show_solute=bool(st.session_state.short_md_view_solute),
+                                        show_solvent=bool(st.session_state.short_md_view_solvent),
+                                        show_ions=bool(st.session_state.short_md_view_ions),
+                                        reline_chloride_count=reline_chloride_count,
+                                        fps=int(gif_fps),
+                                        max_frames=int(gif_frames),
+                                    )
+                                except Exception as exc:
+                                    st.session_state["short_md_gif_signature"] = gif_signature
+                                    st.session_state["short_md_gif_error"] = str(exc)
+                                    st.session_state["short_md_gif_path"] = ""
+                                    st.session_state["short_md_gif_frames"] = 0
+                                else:
+                                    st.session_state["short_md_gif_signature"] = gif_signature
+                                    st.session_state["short_md_gif_error"] = ""
+                                    st.session_state["short_md_gif_path"] = str(generated)
+                                    st.session_state["short_md_gif_frames"] = int(generated_frames)
+
+                        if st.session_state.get("short_md_gif_signature") == gif_signature:
+                            gif_error = str(st.session_state.get("short_md_gif_error") or "")
+                            gif_path_text = str(st.session_state.get("short_md_gif_path") or "")
+                            if gif_error:
+                                st.warning(f"GIF generation failed: {gif_error}")
+                            elif gif_path_text:
+                                gif_path = Path(gif_path_text)
+                                if gif_path.is_file():
+                                    st.image(
+                                        gif_path.read_bytes(),
+                                        caption=(
+                                            f"{str(st.session_state.short_md_view_stage).upper()} · "
+                                            f"{int(st.session_state.get('short_md_gif_frames', 0))} frames"
+                                        ),
+                                        use_container_width=False,
+                                    )
+                                    st.download_button(
+                                        "Download trajectory GIF",
+                                        data=gif_path.read_bytes(),
+                                        file_name=gif_path.name,
+                                        mime="image/gif",
+                                        use_container_width=True,
+                                    )
                     except Exception as exc:
                         st.warning(f"Trajectory preview is unavailable: {exc}")
 
