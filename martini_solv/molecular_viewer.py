@@ -5,8 +5,6 @@ import json
 import re
 from pathlib import Path
 
-import streamlit.components.v1 as components
-
 
 BLUE = "#42C7D5"
 BLUE_LIGHT = "#8FEAF2"
@@ -18,6 +16,12 @@ CHOLINE_RESN = {"CHOL", "CHO"}
 UREA_RESN = {"UREA", "URE"}
 SORBITOL_RESN = {"SOR"}
 ION_RESN = {"NA", "CL", "ION", "K", "CA", "MG", "ZN", "LI", "RB", "CS", "BA", "SR", "F", "BR", "I"}
+
+
+def _components_html(script: str, height: int) -> None:
+    """Import Streamlit lazily so pure parsing/GIF helpers remain testable without Streamlit installed."""
+    import streamlit.components.v1 as components
+    components.html(script, height=height)
 
 
 def render_structure_preview(pdb_text: str, height: int = 430) -> None:
@@ -44,7 +48,7 @@ def render_structure_preview(pdb_text: str, height: int = 430) -> None:
       .viewer {{ width:100%; height:{height}px; overflow:hidden; }}
     </style>
     """
-    components.html(script, height=height + 2)
+    _components_html(script, height=height + 2)
 
 
 def _parse_gro_atoms(path: Path) -> list[dict[str, float | int | str]]:
