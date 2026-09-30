@@ -299,6 +299,10 @@ def render_build_viewer(
     bead_radius: float = 0.85,
     bond_radius: float = 0.20,
     topology_bond_max_nm: float = 0.75,
+    show_protein: bool = True,
+    show_solute: bool = True,
+    show_solvent: bool = True,
+    show_ions: bool = True,
 ) -> dict[str, int]:
     """MartiniSurf-style build viewer: large beads plus protein connectivity."""
     data = path.read_text(errors="replace")
@@ -306,7 +310,7 @@ def render_build_viewer(
     components_map = _component_resnames(path if path.suffix.lower() == ".gro" else None)
     cylinders: list[dict[str, dict[str, float]]] = []
     skipped = 0
-    if show_connectivity and path.suffix.lower() == ".gro":
+    if show_connectivity and show_protein and path.suffix.lower() == ".gro":
         cylinders, skipped = _short_bond_cylinders(
             path, _protein_bonds(system_dir), topology_bond_max_nm
         )
@@ -329,32 +333,34 @@ def render_build_viewer(
     <script>
       const viewer = $3Dmol.createViewer(document.getElementById("viewer"), {{backgroundColor: "{BG}"}});
       viewer.addModel({json.dumps(data)}, {json.dumps(fmt)});
-      viewer.setStyle({{}}, {{sphere: {{radius: {float(bead_radius):.4f}}}}});
+      viewer.setStyle({{}}, {{sphere: {{hidden: true}}}});
       const components = {json.dumps(components_map)};
-      if (components.water.length) {{
+      if ({json.dumps(bool(show_solvent))} && components.water.length) {{
         viewer.setStyle({{resn: components.water}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#B0BEC5", opacity: 0.62}}}});
       }}
-      if (components.choline.length) {{
+      if ({json.dumps(bool(show_solvent))} && components.choline.length) {{
         viewer.setStyle({{resn: components.choline}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#7E57C2"}}}});
       }}
-      if (components.urea.length) {{
+      if ({json.dumps(bool(show_solvent))} && components.urea.length) {{
         viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#FFB74D"}}}});
       }}
-      if (components.sorbitol.length) {{
+      if ({json.dumps(bool(show_solvent))} && components.sorbitol.length) {{
         viewer.setStyle({{resn: components.sorbitol}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#FF7043"}}}});
       }}
-      if (components.ions.length) {{
+      if ({json.dumps(bool(show_ions))} && components.ions.length) {{
         viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "limegreen"}}}});
       }}
-      if (components.solute.length) {{
-        viewer.setStyle({{resn: components.solute}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "yellow"}}}});
+      if ({json.dumps(bool(show_solute))} && components.solute.length) {{
+        viewer.setStyle({{resn: components.solute}}, {{sphere: {{radius: {float(bead_radius) * 1.12:.4f}, color: "yellow"}}}});
       }}
-      if (components.protein.length) {{
+      if ({json.dumps(bool(show_protein))} && components.protein.length) {{
         viewer.setStyle({{resn: components.protein}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE_LIGHT}"}}}});
       }}
-      viewer.setStyle({{atom: "BB"}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE}"}}}});
-      viewer.setStyle({{atom: /^BB\\d+$/}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE}"}}}});
-      viewer.setStyle({{atom: /^SC/}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE_LIGHT}"}}}});
+      if ({json.dumps(bool(show_protein))}) {{
+        viewer.setStyle({{atom: "BB"}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE}"}}}});
+        viewer.setStyle({{atom: /^BB\\d+$/}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE}"}}}});
+        viewer.setStyle({{atom: /^SC/}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "{BLUE_LIGHT}"}}}});
+      }}
       for (const cylinder of {json.dumps(cylinders)}) {{
         viewer.addCylinder({{
           start: cylinder.start,
