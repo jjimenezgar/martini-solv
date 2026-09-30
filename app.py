@@ -63,6 +63,10 @@ DEFAULTS = {
     "viewer_bead_radius": 0.85,
     "viewer_bond_radius": 0.20,
     "viewer_topology_bond_max_nm": 0.75,
+    "viewer_show_protein": True,
+    "viewer_show_solute": True,
+    "viewer_show_solvent": True,
+    "viewer_show_ions": True,
     "short_md_output_tag": "Protein MD",
     "short_md_xtc_write_every_ps": DEFAULT_XTC_WRITE_EVERY_PS,
     "short_md_grompp_maxwarn": DEFAULT_GROMPP_MAXWARN,
@@ -813,6 +817,32 @@ elif step == "Review & Build":
                         key=view_key, on_change=_store_widget, args=("build_view",),
                     )
                     with st.expander("Viewer Options", expanded=False):
+                        vis_a, vis_b, vis_c, vis_d = st.columns(4)
+                        show_protein = vis_a.toggle(
+                            "Protein",
+                            key=_prime_widget("viewer_show_protein"),
+                            on_change=_store_widget,
+                            args=("viewer_show_protein",),
+                        )
+                        show_solute = vis_b.toggle(
+                            "Free molecules",
+                            key=_prime_widget("viewer_show_solute"),
+                            on_change=_store_widget,
+                            args=("viewer_show_solute",),
+                            help="Turn off the other components to inspect every requested copy clearly.",
+                        )
+                        show_solvent = vis_c.toggle(
+                            "Solvent",
+                            key=_prime_widget("viewer_show_solvent"),
+                            on_change=_store_widget,
+                            args=("viewer_show_solvent",),
+                        )
+                        show_ions = vis_d.toggle(
+                            "Ions",
+                            key=_prime_widget("viewer_show_ions"),
+                            on_change=_store_widget,
+                            args=("viewer_show_ions",),
+                        )
                         show_connectivity = st.toggle(
                             "Show protein topology connectivity",
                             key=_prime_widget("viewer_show_connectivity"),
@@ -845,6 +875,10 @@ elif step == "Review & Build":
                         bead_radius=float(bead_radius),
                         bond_radius=float(bond_radius),
                         topology_bond_max_nm=float(topology_bond_max_nm),
+                        show_protein=bool(show_protein),
+                        show_solute=bool(show_solute),
+                        show_solvent=bool(show_solvent),
+                        show_ions=bool(show_ions),
                     )
                     if view_path.suffix.lower() == ".gro":
                         st.caption(
@@ -903,7 +937,9 @@ elif step == "Review & Build":
                         [
                             {
                                 "Molecule": row.get("name", ""),
-                                "Copies requested": int(row.get("count", 0)),
+                                "Copies requested": int(row.get("copies_requested", row.get("count", 0))),
+                                "Copies included": int(row.get("copies_included", row.get("count", 0))),
+                                "Beads / molecule": int(row.get("beads_per_molecule", 0)),
                                 "Charge / molecule": int(row.get("net_charge", 0)),
                                 "Charged bead": row.get("charged_bead") or "—",
                                 "SMILES": row.get("smiles", ""),
@@ -913,6 +949,12 @@ elif step == "Review & Build":
                         hide_index=True,
                         use_container_width=True,
                     )
+                    if all(
+                        int(row.get("copies_included", row.get("count", 0)))
+                        == int(row.get("copies_requested", row.get("count", 0)))
+                        for row in free_rows
+                    ):
+                        st.caption("✓ Requested free-molecule copy counts are present in the final topology.")
             st.download_button(
                 "Download Simulation_Files",
                 archive(built),
