@@ -31,7 +31,7 @@ from martini_solv.theme import STYLE
 
 STEPS = ["Structure", "Model", "Environment", "Review & Build", "Short MD"]
 CHAIN_LABELS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-APP_STATE_VERSION = 2
+APP_STATE_VERSION = 3
 
 st.set_page_config(page_title="MartiniSolv", page_icon="MS", layout="wide", initial_sidebar_state="expanded")
 st.markdown(STYLE, unsafe_allow_html=True)
@@ -54,6 +54,7 @@ DEFAULTS = {
     "box_distance": 1.0,
     "salt": 0.15,
     "water_fraction": 0.0,
+    "chcl_sorbitol_density": 1.20,
     "solutes": [],
     "new_smiles": "",
     "new_name": "",
@@ -95,7 +96,7 @@ BUILD_INPUT_KEYS = {
     "project_name", "pdb_id", "molecule_name", "merge_chain_count", "dssp", "go",
     "go_eps", "position_restraints", "elastic", "elastic_force", "maxwarn",
     "martinize_extra", "solvent_ui", "box_distance", "salt", "water_fraction",
-    "new_smiles", "new_name", "new_copies",
+    "chcl_sorbitol_density", "new_smiles", "new_name", "new_copies",
 }
 
 
@@ -311,7 +312,13 @@ def _chain_labels() -> list[str]:
 
 
 def _config() -> BuildConfig:
-    solvent = "reline" if st.session_state.solvent_ui == "Reline · ChCl:urea 1:2" else "water"
+    solvent_label = str(st.session_state.solvent_ui)
+    if solvent_label == "Reline · ChCl:urea 1:2":
+        solvent = "reline"
+    elif solvent_label == "ChCl:sorbitol 1:1":
+        solvent = "chcl_sorbitol"
+    else:
+        solvent = "water"
     labels = _chain_labels()
     count = max(1, min(int(st.session_state.merge_chain_count), len(labels)))
     merge_chains = ",".join(labels[:count])
@@ -319,7 +326,8 @@ def _config() -> BuildConfig:
     return BuildConfig(
         solvent=solvent,
         salt_m=float(st.session_state.salt) if solvent == "water" else 0.0,
-        water_fraction=float(st.session_state.water_fraction) if solvent == "reline" else 0.0,
+        water_fraction=float(st.session_state.water_fraction) if solvent != "water" else 0.0,
+        chcl_sorbitol_density_g_cm3=float(st.session_state.chcl_sorbitol_density),
         box_distance_nm=float(st.session_state.box_distance),
         molecule_name=str(st.session_state.molecule_name).strip() or "Protein",
         merge_chains=merge_chains,
@@ -610,7 +618,7 @@ elif step == "Environment":
     st.markdown('<div class="ms-panel-title">Environment</div>', unsafe_allow_html=True)
     a, b = st.columns(2)
     a.selectbox(
-        "Solvent", ["Water", "Reline · ChCl:urea 1:2"],
+        "Solvent", ["Water", "Reline · ChCl:urea 1:2", "ChCl:sorbitol 1:1"],
         key=_prime_widget("solvent_ui"),
         on_change=_store_widget, args=("solvent_ui",),
     )
@@ -628,15 +636,34 @@ elif step == "Environment":
         )
         st.caption("INSANE solvates the coarse-grained protein with Martini 3 water and ions.")
     else:
+        wet_label = "Water mole fraction in reline" if active_solvent.startswith("Reline") else "Water mole fraction in ChCl:sorbitol"
         st.slider(
-            "Water mole fraction in reline", min_value=0.0, max_value=0.4, step=0.01,
+            wet_label, min_value=0.0, max_value=0.4, step=0.01,
             key=_prime_widget("water_fraction"),
             on_change=_store_widget, args=("water_fraction",),
         )
-        st.caption(
-            "Reline uses ChCl:urea 1:2. Initial packing is estimated from the experimental "
-            "density 1.20 g/cm³. Added NaCl is not enabled for this path."
-        )
+        if active_solvent.startswith("Reline"):
+            st.caption(
+                "Reline uses ChCl:urea 1:2. Initial packing is estimated from the experimental "
+                "density 1.20 g/cm³. Added NaCl is not enabled for this path."
+            )
+        else:
+            st.number_input(
+                "Dry ChCl:sorbitol density (g/cm³)",
+                min_value=0.5,
+                max_value=2.0,
+                step=0.01,
+                format="%.2f",
+                key=_prime_widget("chcl_sorbitol_density"),
+                on_change=_store_widget,
+                args=("chcl_sorbitol_density",),
+                help="Used only to estimate the initial number of 1:1 ChCl:sorbitol formula units in the box.",
+            )
+            st.caption(
+                "ChCl:sorbitol uses a 1:1 molar ratio. Sorbitol is represented by the supplied "
+                "three-P4-bead topology. The density field is editable because no experimental "
+                "density value was supplied here. Added NaCl is not enabled for this path."
+            )
     _solute_generator()
 
 elif step == "Review & Build":
@@ -650,21 +677,25 @@ elif step == "Review & Build":
         summary_a, summary_b, summary_c, summary_d = st.columns(4)
         summary_a.metric("Protein", config.molecule_name)
         summary_b.metric("Model", "GōMartini" if config.go else ("Elastic" if config.elastic else "Martini 3"))
-        summary_c.metric("Solvent", "Water" if config.solvent == "water" else "Reline")
+        solvent_name = {
+            "water": "Water",
+            "reline": "Reline",
+            "chcl_sorbitol": "ChCl:sorbitol 1:1",
+        }[config.solvent]
+        summary_c.metric("Solvent", solvent_name)
         summary_d.metric("Free molecules", sum(spec.count for spec in config.solutes))
 
-        if config.solvent == "reline":
-            if config.water_fraction > 0:
-                st.info(
-                    f"Environment selected: Wet Reline · ChCl:urea = 1:2 · "
-                    f"target water mole fraction = {config.water_fraction:.2f}. "
-                    "A new build is required after changing the environment."
-                )
-            else:
-                st.info(
-                    "Environment selected: dry Reline · ChCl:urea = 1:2 · no water. "
-                    "A new build is required after changing the environment."
-                )
+        if config.solvent in {"reline", "chcl_sorbitol"}:
+            des_name = "Reline · ChCl:urea = 1:2" if config.solvent == "reline" else "ChCl:sorbitol = 1:1"
+            wet_prefix = "Wet" if config.water_fraction > 0 else "Dry"
+            wet_text = (
+                f"target water mole fraction = {config.water_fraction:.2f}"
+                if config.water_fraction > 0 else "no water"
+            )
+            st.info(
+                f"Environment selected: {wet_prefix} {des_name} · {wet_text}. "
+                "A new build is required after changing the environment."
+            )
         else:
             st.info(
                 f"Environment selected: Martini water · NaCl = {config.salt_m:.2f} M. "
@@ -767,10 +798,12 @@ elif step == "Review & Build":
             st.success("System generated and checked with GROMACS.")
             manifest = json.loads((built / "manifest.json").read_text())
             composition = manifest.get("composition") or {}
-            if config.solvent == "reline" and composition:
+            if config.solvent in {"reline", "chcl_sorbitol"} and composition:
                 comp_cols = st.columns(5)
                 comp_cols[0].metric("Choline", int(composition.get("CHOL", 0)))
-                comp_cols[1].metric("Urea", int(composition.get("UREA", 0)))
+                hbd_name = "Urea" if config.solvent == "reline" else "Sorbitol"
+                hbd_key = "UREA" if config.solvent == "reline" else "SOR"
+                comp_cols[1].metric(hbd_name, int(composition.get(hbd_key, 0)))
                 comp_cols[2].metric("Chloride", int(composition.get("CL", 0)))
                 comp_cols[3].metric("Sodium", int(composition.get("NA", 0)))
                 comp_cols[4].metric("Water beads", int(composition.get("W", 0)))
@@ -784,8 +817,9 @@ elif step == "Review & Build":
                     )
                 actual_water = composition.get("x_water_actual")
                 if actual_water is not None:
+                    ratio = "ChCl:urea = 1:2" if config.solvent == "reline" else "ChCl:sorbitol = 1:1"
                     st.caption(
-                        f"Built Reline composition · ChCl:urea = 1:2 · "
+                        f"Built DES composition · {ratio} · "
                         f"target dry density = {float(composition.get('target_density_g_cm3', 1.20)):.2f} g/cm³ · "
                         f"actual water mole fraction ≈ {float(actual_water):.3f}."
                     )
@@ -941,12 +975,12 @@ elif step == "Short MD":
                 toggle_c.toggle(
                     "Solvent", key=_prime_widget("short_md_view_solvent"),
                     on_change=_store_widget, args=("short_md_view_solvent",),
-                    help="Shows the active solvent: water, or Reline as choline + urea + its intrinsic chloride; wet Reline also includes water.",
+                    help="Shows the active solvent: water, Reline (choline + urea + intrinsic chloride), or ChCl:sorbitol (choline + sorbitol + intrinsic chloride). Wet DES also includes water.",
                 )
                 toggle_d.toggle(
                     "Counterions", key=_prime_widget("short_md_view_ions"),
                     on_change=_store_widget, args=("short_md_view_ions",),
-                    help="Shows only neutralizing/free ions. The chloride belonging to Reline is shown with Solvent.",
+                    help="Shows only neutralizing/free ions. Chloride belonging to the selected ChCl-based solvent is shown with Solvent.",
                 )
 
                 selected = next(row for row in trajectory_rows if row["name"] == st.session_state.short_md_view_stage)
@@ -959,7 +993,9 @@ elif step == "Short MD":
                         if manifest_path.is_file():
                             manifest = json.loads(manifest_path.read_text())
                             composition = manifest.get("composition") or {}
-                            reline_chloride_count = int(composition.get("reline_chloride", 0))
+                            reline_chloride_count = int(
+                                composition.get("intrinsic_chloride", composition.get("reline_chloride", 0))
+                            )
                         frames = render_trajectory(
                             gro,
                             xtc,
@@ -983,7 +1019,7 @@ elif step == "Short MD":
             st.download_button(
                 "Download Simulation_Files + Short MD",
                 archive(built),
-                file_name="martini-solv-system.zip",
+                file_name="Simulation_Files.zip",
                 mime="application/zip",
                 use_container_width=True,
             )

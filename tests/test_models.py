@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved, _verify_reline_composition
-from martini_solv.models import BuildConfig, reline_counts
+from martini_solv.models import BuildConfig, chcl_sorbitol_counts, reline_counts
 
 
 class TestModels(unittest.TestCase):
@@ -157,7 +157,7 @@ class TestModels(unittest.TestCase):
                 "    5W       W    8   0.800   0.100   0.100\n"
                 "   2.00000   2.00000   2.00000\n"
             )
-            expected = {"CHOL": 1, "UREA": 2, "CL": 1, "NA": 0, "W": 1}
+            expected = {"CHOL": 1, "UREA": 2, "SOR": 0, "CL": 1, "NA": 0, "W": 1}
             actual = _verify_reline_composition(gro, expected)
             self.assertEqual(actual, expected)
 
@@ -185,6 +185,24 @@ class TestModels(unittest.TestCase):
                 "    7W       W   10   1.000   0.100   0.100\n"
                 "   2.00000   2.00000   2.00000\n"
             )
-            expected = {"CHOL": 1, "UREA": 2, "CL": 3, "NA": 0, "W": 1}
+            expected = {"CHOL": 1, "UREA": 2, "SOR": 0, "CL": 3, "NA": 0, "W": 1}
             actual = _verify_reline_composition(gro, expected)
             self.assertEqual(actual, expected)
+
+
+    def test_chcl_sorbitol_stoichiometry_and_wet_fraction(self):
+        counts = chcl_sorbitol_counts(5.0, 0.10, 1.20)
+        self.assertEqual(counts["SOR"], counts["CHOL"])
+        self.assertEqual(counts["CL"], counts["CHOL"])
+        self.assertLess(abs(counts["x_water_actual"] - 0.10), 0.003)
+
+    def test_dry_chcl_sorbitol_has_no_water(self):
+        self.assertEqual(chcl_sorbitol_counts(5.0, 0.0, 1.20)["W"], 0)
+
+    def test_chcl_sorbitol_config_accepts_des_mode(self):
+        BuildConfig(
+            solvent="chcl_sorbitol",
+            salt_m=0.0,
+            water_fraction=0.10,
+            chcl_sorbitol_density_g_cm3=1.20,
+        ).validate()

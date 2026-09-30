@@ -16,6 +16,7 @@ TRAJ_BG = "#0E0D11"
 WATER_RESN = {"W", "WF", "SW", "TW", "SOL"}
 CHOLINE_RESN = {"CHOL", "CHO"}
 UREA_RESN = {"UREA", "URE"}
+SORBITOL_RESN = {"SOR"}
 ION_RESN = {"NA", "CL", "ION", "K", "CA", "MG", "ZN", "LI", "RB", "CS", "BA", "SR", "F", "BR", "I"}
 
 
@@ -149,6 +150,7 @@ def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
         "water": set(),
         "choline": set(),
         "urea": set(),
+        "sorbitol": set(),
         "reline_chloride": set(),
         "ions": set(),
         "solute": set(),
@@ -171,6 +173,8 @@ def _component_resnames(gro_path: Path | None) -> dict[str, list[str]]:
             groups["choline"].add(resn)
         elif upper in UREA_RESN or {"N1", "UP", "UN"}.issubset(names):
             groups["urea"].add(resn)
+        elif upper in SORBITOL_RESN or {"S1", "S2", "S3"}.issubset(names):
+            groups["sorbitol"].add(resn)
         elif upper in ION_RESN:
             groups["ions"].add(resn)
         elif "BB" in names or any(name.startswith("SC") for name in names) or any(
@@ -287,6 +291,7 @@ def render_build_viewer(
         <span><i style="background:#B0BEC5"></i>Water</span>
         <span><i style="background:#7E57C2"></i>Choline</span>
         <span><i style="background:#FFB74D"></i>Urea</span>
+        <span><i style="background:#FF7043"></i>Sorbitol</span>
         <span><i style="background:limegreen"></i>Ions</span>
         <span><i style="background:yellow"></i>Free molecule</span>
       </div>
@@ -305,6 +310,9 @@ def render_build_viewer(
       }}
       if (components.urea.length) {{
         viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#FFB74D"}}}});
+      }}
+      if (components.sorbitol.length) {{
+        viewer.setStyle({{resn: components.sorbitol}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "#FF7043"}}}});
       }}
       if (components.ions.length) {{
         viewer.setStyle({{resn: components.ions}}, {{sphere: {{radius: {float(bead_radius):.4f}, color: "limegreen"}}}});
@@ -395,6 +403,8 @@ def _trajectory_as_multimodel_pdb(
             namesafe = "CHO"
         elif upper in UREA_RESN:
             namesafe = "URE"
+        elif upper in SORBITOL_RESN:
+            namesafe = "SOR"
         elif upper in WATER_RESN:
             namesafe = "WAT"
         elif upper in {"CL", "CL-"}:
@@ -449,6 +459,7 @@ def render_trajectory(
         "water": ["WAT"],
         "choline": ["CHO"],
         "urea": ["URE"],
+        "sorbitol": ["SOR"],
         "reline_chloride": ["RCL"],
         "ions": ["ICL", "INA", *[name[:3] for name in gro_components.get("ions", []) if name.upper() not in {"CL", "CL-", "NA", "NA+"}]],
         "solute": sorted({name[:3] for name in gro_components.get("solute", [])}),
@@ -462,6 +473,7 @@ def render_trajectory(
         <span><i style="background:#B0BEC5"></i>Water</span>
         <span><i style="background:#7E57C2"></i>Choline</span>
         <span><i style="background:#FFB74D"></i>Urea</span>
+        <span><i style="background:#FF7043"></i>Sorbitol</span>
         <span><i style="background:limegreen"></i>Ions</span>
         <span><i style="background:yellow"></i>Free molecule</span>
       </div>
@@ -480,6 +492,9 @@ def render_trajectory(
       }}
       if ({json.dumps(bool(show_solvent))} && components.urea.length) {{
         viewer.setStyle({{resn: components.urea}}, {{sphere: {{radius: 0.70, color: "#FFB74D"}}}});
+      }}
+      if ({json.dumps(bool(show_solvent))} && components.sorbitol.length) {{
+        viewer.setStyle({{resn: components.sorbitol}}, {{sphere: {{radius: 0.72, color: "#FF7043"}}}});
       }}
       if ({json.dumps(bool(show_solvent))} && components.reline_chloride.length) {{
         viewer.setStyle({{resn: components.reline_chloride}}, {{sphere: {{radius: 0.56, color: "#EC407A"}}}});
