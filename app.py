@@ -54,7 +54,6 @@ DEFAULTS = {
     "box_distance": 1.0,
     "salt": 0.15,
     "water_fraction": 0.0,
-    "chcl_sorbitol_density": 1.20,
     "solutes": [],
     "new_smiles": "",
     "new_name": "",
@@ -96,7 +95,7 @@ BUILD_INPUT_KEYS = {
     "project_name", "pdb_id", "molecule_name", "merge_chain_count", "dssp", "go",
     "go_eps", "position_restraints", "elastic", "elastic_force", "maxwarn",
     "martinize_extra", "solvent_ui", "box_distance", "salt", "water_fraction",
-    "chcl_sorbitol_density", "new_smiles", "new_name", "new_copies",
+    "new_smiles", "new_name", "new_copies",
 }
 
 
@@ -327,7 +326,7 @@ def _config() -> BuildConfig:
         solvent=solvent,
         salt_m=float(st.session_state.salt) if solvent == "water" else 0.0,
         water_fraction=float(st.session_state.water_fraction) if solvent != "water" else 0.0,
-        chcl_sorbitol_density_g_cm3=float(st.session_state.chcl_sorbitol_density),
+        chcl_sorbitol_density_g_cm3=1.20,
         box_distance_nm=float(st.session_state.box_distance),
         molecule_name=str(st.session_state.molecule_name).strip() or "Protein",
         merge_chains=merge_chains,
@@ -648,21 +647,10 @@ elif step == "Environment":
                 "density 1.20 g/cm³. Added NaCl is not enabled for this path."
             )
         else:
-            st.number_input(
-                "Dry ChCl:sorbitol density (g/cm³)",
-                min_value=0.5,
-                max_value=2.0,
-                step=0.01,
-                format="%.2f",
-                key=_prime_widget("chcl_sorbitol_density"),
-                on_change=_store_widget,
-                args=("chcl_sorbitol_density",),
-                help="Used only to estimate the initial number of 1:1 ChCl:sorbitol formula units in the box.",
-            )
             st.caption(
                 "ChCl:sorbitol uses a 1:1 molar ratio. Sorbitol is represented by the supplied "
-                "three-P4-bead topology. The density field is editable because no experimental "
-                "density value was supplied here. Added NaCl is not enabled for this path."
+                "three-P4-bead topology. Initial packing uses a fixed density of 1.20 g/cm³. "
+                "Added NaCl is not enabled for this path."
             )
     _solute_generator()
 
