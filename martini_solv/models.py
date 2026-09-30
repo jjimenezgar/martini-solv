@@ -10,6 +10,8 @@ class Solute:
     name: str
     smiles: str
     count: int
+    net_charge: int = 0
+    charged_bead: int | None = None
 
     def validate(self) -> None:
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,15}", self.name):
@@ -22,6 +24,12 @@ class Solute:
             raise RuntimeError("RDKit is required for SMILES validation") from exc
         if Chem.MolFromSmiles(self.smiles) is None:
             raise ValueError(f"Invalid SMILES for {self.name}")
+        if not -2 <= int(self.net_charge) <= 2:
+            raise ValueError("Free-molecule net charge must be between -2 and +2")
+        if int(self.net_charge) != 0 and (self.charged_bead is None or int(self.charged_bead) < 1):
+            raise ValueError("Choose which Martini bead carries the requested free-molecule charge")
+        if int(self.net_charge) == 0 and self.charged_bead is not None:
+            raise ValueError("Neutral free molecules must not define a charged bead")
 
 
 @dataclass(frozen=True)
