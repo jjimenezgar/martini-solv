@@ -165,7 +165,7 @@ def render_free_molecule_mapping(path: Path, height: int = 360) -> list[dict[str
       }}
     </style>
     """
-    components.html(script, height=height + 2)
+    _components_html(script, height=height + 2)
     return [
         {
             "Bead": f"{index}: {str(atom['name']).strip()}",
@@ -402,7 +402,7 @@ def render_build_viewer(
       .viewer-legend i {{width:9px;height:9px;border-radius:50%;display:inline-block;}}
     </style>
     """
-    components.html(script, height=height + 2)
+    _components_html(script, height=height + 2)
     return {"bonds": len(cylinders), "skipped_long": skipped}
 
 
@@ -577,7 +577,7 @@ def render_trajectory(
       .viewer-legend i {{width:9px;height:9px;border-radius:50%;display:inline-block;}}
     </style>
     """
-    components.html(script, height=height + 2)
+    _components_html(script, height=height + 2)
     return frames
 
 
