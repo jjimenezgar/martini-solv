@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="assets/martinisolv_logo.png" alt="MartiniSolv logo" width="220">
-
 # MartiniSolv
 
 ### Martini 3 protein-in-solution system builder
