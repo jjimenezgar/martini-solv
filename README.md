@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/martinisolv_logo.webp" alt="MartiniSolv logo" width="220">
+<img src="https://raw.githubusercontent.com/jjimenezgar/martini-solv/main/assets/martinisolv_logo.webp" alt="MartiniSolv logo" width="220">
 
 # MartiniSolv
 
