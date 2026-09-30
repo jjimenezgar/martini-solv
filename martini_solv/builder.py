@@ -250,6 +250,34 @@ def _protein_net_charge(work: Path) -> float:
                and path.name not in {"choline.itp", "urea.itp"})
 
 
+def _verify_free_molecule_topology_counts(
+    system_top: Path,
+    templates: list[tuple[object, Path, Path]],
+) -> list[dict[str, object]]:
+    """Verify requested free-molecule copy counts are present in system.top."""
+    top_counts: dict[str, int] = {}
+    for molecule_name, count in _molecules(system_top):
+        top_counts[molecule_name] = top_counts.get(molecule_name, 0) + int(count)
+
+    verified: list[dict[str, object]] = []
+    for spec, _gro, itp in templates:
+        molecule_type = _molecule_type(itp)
+        requested = int(spec.count)
+        actual = int(top_counts.get(molecule_type, 0))
+        if actual != requested:
+            raise RuntimeError(
+                f"Free molecule {spec.name}: requested {requested} copies but system.top contains {actual}"
+            )
+        verified.append({
+            "name": spec.name,
+            "molecule_type": molecule_type,
+            "requested": requested,
+            "included": actual,
+            "beads_per_molecule": _gro_count(_gro),
+        })
+    return verified
+
+
 def _insert(work: Path, current: Path, template: Path, count: int, name: str, seed: int, log: Path) -> Path:
     if count == 0:
         return current
@@ -642,6 +670,9 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
             actual_counts = _verify_reline_composition(work / "system.gro", counts)
             composition = {**counts, "coordinate_counts": actual_counts}
         _topology(work, protein, species, go_enabled=config.go)
+        verified_free_molecules = _verify_free_molecule_topology_counts(
+            work / "system.top", templates
+        )
         (work / "minimization.mdp").write_text(
             "integrator = steep\nnsteps = 5000\nemtol = 100\nemstep = 0.01\n"
             "cutoff-scheme = Verlet\nnstlist = 20\nrlist = 1.1\n"
@@ -651,8 +682,30 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
         report = {"config": json.loads(config.to_json()), "sources": sources,
                   "composition": composition, "protein_molecules": protein,
                   "free_molecules": [
-                      {"name": spec.name, "count": spec.count, "smiles": spec.smiles,
-                       "net_charge": spec.net_charge, "charged_bead": spec.charged_bead}
+                      {
+                          "name": spec.name,
+                          "count": spec.count,
+                          "copies_requested": spec.count,
+                          "copies_included": next(
+                              (
+                                  row["included"]
+                                  for row in verified_free_molecules
+                                  if row["name"] == spec.name
+                              ),
+                              0,
+                          ),
+                          "beads_per_molecule": next(
+                              (
+                                  row["beads_per_molecule"]
+                                  for row in verified_free_molecules
+                                  if row["name"] == spec.name
+                              ),
+                              0,
+                          ),
+                          "smiles": spec.smiles,
+                          "net_charge": spec.net_charge,
+                          "charged_bead": spec.charged_bead,
+                      }
                       for spec in config.solutes
                   ],
                   "martinize_command": martinize, "status": "grompp pending"}
