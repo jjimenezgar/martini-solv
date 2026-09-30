@@ -29,7 +29,7 @@ from martini_solv.short_md import (
 from martini_solv.theme import STYLE
 
 
-STEPS = ["Structure", "Model", "Environment", "Review & Build", "Short MD"]
+STEPS = ["Home", "Structure", "Model", "Environment", "Review & Build", "Short MD"]
 CHAIN_LABELS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 APP_STATE_VERSION = 3
 
@@ -37,7 +37,7 @@ st.set_page_config(page_title="MartiniSolv", page_icon="MS", layout="wide", init
 st.markdown(STYLE, unsafe_allow_html=True)
 
 DEFAULTS = {
-    "active_step": "Structure",
+    "active_step": "Home",
     "project_name": "MartiniSolv Protein - 1UBQ",
     "pdb_id": "1UBQ",
     "molecule_name": "Protein",
@@ -564,11 +564,83 @@ with st.sidebar:
     st.markdown('<div class="ms-side-title">MartiniSolv</div>', unsafe_allow_html=True)
     st.caption("Protein in solution · Martini 3")
     st.radio("Workflow step", STEPS, key="active_step", label_visibility="collapsed")
-    st.markdown('<div class="ms-side-flow">Structure → Model → Environment → Review & Build → Short MD</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ms-side-flow">Home · Structure → Model → Environment → Review & Build → Short MD</div>', unsafe_allow_html=True)
 
 step = st.session_state.active_step
 
-if step == "Structure":
+if step == "Home":
+    st.markdown(
+        """
+        <section class="ms-home-hero">
+          <div class="ms-home-kicker">MARTINI 3 · PROTEIN IN SOLUTION</div>
+          <h1>MartiniSolv</h1>
+          <p class="ms-home-lead">
+            A streamlined workflow to prepare, solvate, inspect and validate
+            coarse-grained protein systems with Martini 3.
+          </p>
+          <div class="ms-home-chips">
+            <span>Structure preparation</span>
+            <span>Water & DES solvents</span>
+            <span>Free molecules</span>
+            <span>Short MD validation</span>
+            <span>Simulation-ready files</span>
+          </div>
+          <div class="ms-home-author">
+            <div>
+              <div class="ms-home-author-label">Developed by</div>
+              <div class="ms-home-author-name">Juan Carlos Jiménez-García</div>
+            </div>
+            <a class="ms-home-github" href="https://github.com/jjimenezgar" target="_blank" rel="noopener noreferrer">
+              github.com/jjimenezgar ↗
+            </a>
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### Workflow")
+    flow_a, flow_b, flow_c = st.columns(3)
+    with flow_a:
+        st.markdown(
+            """
+            <div class="ms-home-card">
+              <div class="ms-home-card-number">01</div>
+              <strong>Prepare the protein</strong>
+              <span>Load a PDB, generate the Martini 3 model and configure GōMartini or elastic-network options.</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with flow_b:
+        st.markdown(
+            """
+            <div class="ms-home-card">
+              <div class="ms-home-card-number">02</div>
+              <strong>Build the environment</strong>
+              <span>Choose water, Reline or ChCl:sorbitol and optionally add mapped free molecules.</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with flow_c:
+        st.markdown(
+            """
+            <div class="ms-home-card">
+              <div class="ms-home-card-number">03</div>
+              <strong>Validate & export</strong>
+              <span>Inspect the full system, run a short MD check and download organised Simulation_Files.</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("")
+    if st.button("Start a MartiniSolv project", type="primary", use_container_width=True):
+        st.session_state.active_step = "Structure"
+        st.rerun()
+
+elif step == "Structure":
     left, right = st.columns([0.9, 1.1], gap="large")
     with left:
         st.markdown('<div class="ms-panel-title">Structure input</div>', unsafe_allow_html=True)
