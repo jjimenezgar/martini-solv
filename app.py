@@ -58,6 +58,8 @@ DEFAULTS = {
     "new_smiles": "",
     "new_name": "",
     "new_copies": 1,
+    "upload_name": "",
+    "upload_copies": 1,
     "build_view": "Full solvated system",
     "viewer_show_connectivity": True,
     "viewer_bead_radius": 0.85,
@@ -273,13 +275,91 @@ def _solute_generator() -> None:
             except (ValueError, RuntimeError, OSError) as exc:
                 st.error(str(exc))
 
+    with st.expander("Free molecule · Upload Martini ITP", expanded=False):
+        st.caption(
+            "Already have a Martini topology? Upload a single .itp file. "
+            "MartiniSolv will generate a starting .gro template from its beads and connectivity."
+        )
+        up_left, up_mid, up_right = st.columns([1.35, 1.0, 0.65])
+        uploaded_itp = up_left.file_uploader(
+            "Martini topology (.itp)",
+            type=["itp"],
+            key="free_molecule_itp_upload",
+        )
+        upload_name = up_mid.text_input(
+            "Molecule name",
+            key=_prime_widget("upload_name"),
+            placeholder="LIG",
+            on_change=_store_widget,
+            args=("upload_name",),
+        )
+        upload_copies = up_right.number_input(
+            "Copies",
+            min_value=1,
+            max_value=1000,
+            key=_prime_widget("upload_copies"),
+            on_change=_store_widget,
+            args=("upload_copies",),
+        )
+        if uploaded_itp is not None:
+            try:
+                root = Path(tempfile.mkdtemp(prefix="martinisolv_upload_"))
+                source_itp = root / Path(uploaded_itp.name).name
+                source_itp.write_bytes(uploaded_itp.getvalue())
+                bead_types = _itp_bead_types(source_itp)
+                st.caption(f"Detected {len(bead_types)} Martini bead(s) in [ atoms ].")
+            except Exception as exc:
+                st.warning(f"Could not inspect uploaded ITP: {exc}")
+                source_itp = None
+        else:
+            source_itp = None
+
+        if st.button("Add uploaded molecule", use_container_width=True):
+            try:
+                if source_itp is None:
+                    raise ValueError("Upload a Martini .itp file first")
+                name = str(upload_name).strip()
+                species = Solute(
+                    name=name,
+                    smiles="",
+                    count=int(upload_copies),
+                    source="upload",
+                    template_itp=str(source_itp),
+                )
+                species.validate()
+                if any(row["name"].upper() == species.name.upper() for row in st.session_state.solutes):
+                    raise ValueError("Choose a unique molecule name")
+                preview_root = Path(tempfile.mkdtemp(prefix="martinisolv_uploaded_preview_"))
+                from martini_solv.builder import _prepare_uploaded_solute
+                gro, itp = _prepare_uploaded_solute(preview_root, species.name, source_itp)
+                st.session_state.solutes.append(
+                    {
+                        "name": species.name,
+                        "smiles": "",
+                        "count": species.count,
+                        "net_charge": 0,
+                        "charged_bead": None,
+                        "source": "upload",
+                        "template_itp": str(source_itp),
+                        "gro": str(gro),
+                        "itp": str(itp),
+                    }
+                )
+                _invalidate_build_outputs()
+                st.success(
+                    f"{species.name}: uploaded Martini topology added and a starting GRO template was generated."
+                )
+            except (ValueError, RuntimeError, OSError) as exc:
+                st.error(str(exc))
+
         for index, row in enumerate(list(st.session_state.solutes)):
             with st.container(border=True):
                 title, action = st.columns([3, 0.6])
                 row_charge, row_charged_bead = _solute_charge_state(row)
                 charge_text = f"{row_charge:+d}" if row_charge else "0"
+                source_label = "Uploaded ITP" if row.get("source") == "upload" else f"`{row['smiles']}`"
                 title.markdown(
-                    f"**{row['name']}** · {row['count']} copies · charge {charge_text} · `{row['smiles']}`"
+                    f"**{row['name']}** · {row['count']} copies · charge {charge_text} · {source_label}"
                 )
                 if action.button("Remove", key=f"remove_{index}", use_container_width=True):
                     st.session_state.solutes.pop(index)
@@ -411,9 +491,13 @@ def _config() -> BuildConfig:
         martinize_extra_args=extras,
         solutes=[
             Solute(
-                row["name"], row["smiles"], int(row["count"]),
+                row["name"],
+                row.get("smiles", ""),
+                int(row["count"]),
                 int(row.get("net_charge", 0) or 0),
                 (int(row["charged_bead"]) if row.get("charged_bead") is not None else None),
+                str(row.get("source", "smiles")),
+                str(row.get("template_itp", "")),
             )
             for row in st.session_state.solutes
         ],
@@ -1017,6 +1101,7 @@ elif step == "Review & Build":
                         [
                             {
                                 "Molecule": row.get("name", ""),
+                                "Source": "Uploaded ITP" if row.get("source") == "upload" else "SMILES",
                                 "Copies requested": int(row.get("copies_requested", row.get("count", 0))),
                                 "Copies included": int(row.get("copies_included", row.get("count", 0))),
                                 "Beads / molecule": int(row.get("beads_per_molecule", 0)),
