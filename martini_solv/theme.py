@@ -70,6 +70,42 @@ section[data-testid="stMain"] > div {
   border: 1px solid rgba(143,234,242,.16);
   border-radius: 50%;
 }
+.ms-home-logo-wrap {
+  position: absolute;
+  top: 2.2rem;
+  right: 2.4rem;
+  width: 168px;
+  height: 168px;
+  padding: 9px;
+  border: 1px solid rgba(143,234,242,.28);
+  border-radius: 22px;
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 18px 42px rgba(0,0,0,.28), 0 0 0 1px rgba(66,199,213,.06);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+}
+.ms-home-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 16px;
+}
+.ms-home-hero h1,
+.ms-home-lead,
+.ms-home-chips,
+.ms-home-author,
+.ms-home-kicker {
+  position: relative;
+  z-index: 3;
+}
+.ms-home-hero h1,
+.ms-home-lead,
+.ms-home-chips {
+  max-width: calc(100% - 210px);
+}
+
 .ms-home-kicker {
   color: var(--ms-teal);
   font-size: .76rem;
@@ -284,5 +320,44 @@ label, p, span {
     padding-right: 1rem;
   }
 }
+@media (max-width: 900px) {
+  .ms-home-logo-wrap {
+    width: 112px;
+    height: 112px;
+    top: 1.35rem;
+    right: 1.35rem;
+    border-radius: 17px;
+    padding: 7px;
+  }
+  .ms-home-hero h1,
+  .ms-home-lead,
+  .ms-home-chips {
+    max-width: calc(100% - 132px);
+  }
+}
+
+@media (max-width: 620px) {
+  .ms-home-hero {
+    padding: 2rem 1.35rem 1.7rem;
+  }
+  .ms-home-logo-wrap {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 96px;
+    height: 96px;
+    margin: 0 0 1.25rem auto;
+  }
+  .ms-home-hero h1,
+  .ms-home-lead,
+  .ms-home-chips {
+    max-width: 100%;
+  }
+  .ms-home-author {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 </style>
 """
