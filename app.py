@@ -1,7 +1,6 @@
 """Friendly MartiniSolv Streamlit workflow modelled on MartiniSurf."""
 from __future__ import annotations
 
-import base64
 import json
 from pathlib import Path
 import shlex
@@ -745,21 +744,9 @@ with st.sidebar:
 step = st.session_state.active_step
 
 if step == "Home":
-    logo_path = Path(__file__).resolve().parent / "assets" / "martinisolv_logo.webp"
-    logo_html = ""
-    if logo_path.is_file():
-        logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
-        logo_html = (
-            '<div class="ms-home-logo-wrap">'
-            f'<img class="ms-home-logo" src="data:image/webp;base64,{logo_b64}" '
-            'alt="MartiniSolv logo">'
-            '</div>'
-        )
-
     st.markdown(
-        f"""
+        """
         <section class="ms-home-hero">
-          {logo_html}
           <div class="ms-home-kicker">MARTINI 3 · PROTEIN IN SOLUTION</div>
           <h1>MartiniSolv</h1>
           <p class="ms-home-lead">
