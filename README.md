@@ -1,12 +1,234 @@
+<div align="center">
+
 # MartiniSolv
 
-An independent, small protein system builder inspired by [MartiniSurf](https://github.com/jjimenezgar/MartiniSurf). Its Streamlit interface keeps MartiniSurf's dark cards and clear step navigation, with a teal accent. The scientific core also runs without a browser.
+### Martini 3 protein-in-solution system builder
 
-**PDB → martinize2 (Martini 3) → cubic box → water or reline → optional free molecules → GROMACS files.** The output includes `system.gro`, `system.top`, force-field and molecular `.itp` files, `minimization.mdp`, a provenance manifest and a command log. A successful build runs `gmx grompp` with zero tolerated warnings; it does **not** claim the structure is equilibrated.
+Prepare, solvate, inspect and validate coarse-grained protein systems through a clean Streamlit workflow or from the command line.
 
-## Install and run
+[![Open MartiniSolv](https://img.shields.io/badge/Launch-MartiniSolv-42C7D5?style=for-the-badge&logo=streamlit&logoColor=white)](https://martinisolv.streamlit.app/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Martini 3](https://img.shields.io/badge/Martini-3-8FEAF2?style=flat-square)](https://cgmartini.nl/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-F4F5F7?style=flat-square)](LICENSE)
 
-For local use, GROMACS, Packmol, martinize2, INSANE, mdtraj and Martini Mapper are installed from `conda/environment.yml`. On Streamlit Community Cloud, `requirements.txt` installs Python packages and `packages.txt` installs GROMACS and Packmol through apt, following the same approach as MartiniSurf. `vermouth` provides `martinize2`; `mdtraj` provides the DSSP implementation invoked with the bare `-dssp` flag. Martini Mapper is pinned to an upstream Git commit, and runs with `--no-xtb`. INSANE currently imports `pkg_resources`, so setuptools is constrained below 81. Both installation routes are exercised by GitHub Actions:
+**Developed by [Juan Carlos Jiménez-García](https://github.com/jjimenezgar)**
+
+</div>
+
+---
+
+## Overview
+
+**MartiniSolv** is a compact, reproducible workflow for preparing **Martini 3 protein systems in solution**. It is inspired by [MartiniSurf](https://github.com/jjimenezgar/MartiniSurf), but deliberately removes surfaces, linkers and immobilization logic.
+
+The application guides the user through:
+
+```text
+Home → Structure → Model → Environment → Review & Build → Short MD
+```
+
+The scientific workflow is:
+
+```text
+PDB
+ ↓
+martinize2 / Martini 3
+ ↓
+simulation box
+ ↓
+water or DES environment
+ ↓
+optional free molecules
+ ↓
+GROMACS-ready topology + coordinates
+ ↓
+optional short MD validation
+```
+
+A successful build is checked with **GROMACS `grompp`** before it is presented as ready for download.
+
+---
+
+## Launch the app
+
+<div align="center">
+
+### [▶ Open MartiniSolv on Streamlit](https://martinisolv.streamlit.app/)
+
+No local installation is required for the hosted interface.
+
+</div>
+
+---
+
+## Main features
+
+### Protein preparation
+
+- Upload a PDB file or enter an RCSB PDB ID.
+- Automatic protein-only cleanup.
+- Martini 3 coarse-graining with `martinize2`.
+- DSSP secondary-structure assignment.
+- Optional **GōMartini** model.
+- Configurable Gō interaction strength.
+- Optional elastic network.
+- Position restraints.
+- Chain merging controls.
+- Interactive coarse-grained structure visualization.
+
+### Solvent environments
+
+MartiniSolv currently supports:
+
+| Environment | Composition | Water |
+|---|---|---|
+| Martini water | Water + optional NaCl | native |
+| Reline | ChCl : urea = **1 : 2** | dry or user-defined wet fraction |
+| ChCl:sorbitol | ChCl : sorbitol = **1 : 1** | dry or user-defined wet fraction |
+
+For the DES systems, the builder preserves the intrinsic ChCl stoichiometry and adds only the extra counterions required to neutralize the complete system.
+
+### Free molecules from SMILES
+
+Additional dissolved molecules can be generated directly in the **Environment** step.
+
+The workflow:
+
+1. Enter a neutral SMILES.
+2. Assign a molecule name and number of copies.
+3. Generate the coarse-grained model with **Martini Mapper**.
+4. Inspect the generated beads and Martini types.
+5. Optionally assign a molecular charge.
+6. Select which mapped bead carries that charge.
+7. Insert the requested number of copies into the final system.
+
+Supported manual net charges are currently:
+
+```text
+-2  -1   0   +1   +2
+```
+
+The default is **0**.
+
+Charged free molecules are automatically counterbalanced during the build:
+
+- positive free-molecule charge → additional **Cl⁻**
+- negative free-molecule charge → additional **Na⁺**
+
+The total protein + free-molecule charge is considered when neutralizing the system.
+
+> Manual charge assignment changes the numerical charge in the generated ITP. MartiniSolv does not automatically change the Martini bead type. The selected bead and charge should therefore be consistent with a scientifically validated CG model.
+
+---
+
+## Review & Build
+
+Before running MD, MartiniSolv provides an interactive inspection of the generated system.
+
+The viewer can independently show or hide:
+
+- Protein
+- Free molecules
+- Solvent
+- Ions
+
+Free-molecule copy counts are explicitly verified against the final topology. The interface reports both:
+
+```text
+Copies requested
+Copies included
+```
+
+A mismatch causes the build to fail instead of silently generating an inconsistent system.
+
+---
+
+## Short MD validation
+
+MartiniSolv includes an optional short validation workflow:
+
+```text
+Energy minimization
+        ↓
+       NVT
+        ↓
+       NPT
+        ↓
+   Production
+```
+
+The NVT, NPT and short Production stages expose:
+
+- timestep
+- simulation length
+- XTC output frequency
+- GROMACS warning tolerance
+- CPU-thread count
+
+Completed trajectories can be animated directly in the app.
+
+### Analysis
+
+For the selected MD stage, MartiniSolv can calculate:
+
+- **RMSD** of protein backbone beads
+- **RMSF** of protein backbone beads
+- **system density**
+
+The analyses are stage-specific: selecting Production analyzes the full Production stage rather than mixing data from NVT or NPT.
+
+The Short MD workflow is intended as a **technical and structural validation step**, not as evidence of an equilibrated or converged production simulation.
+
+---
+
+## Simulation-ready download
+
+The generated download is organized as:
+
+```text
+Simulation_Files/
+├── 0_topology/
+│   ├── system.top
+│   └── system_itp/
+│       ├── Protein.itp
+│       ├── Martini force-field files
+│       ├── Gō files when enabled
+│       ├── solvent ITPs
+│       └── free-molecule ITPs
+│
+├── 1_mdp/
+│   ├── minimization.mdp
+│   ├── nvt.mdp
+│   ├── npt.mdp
+│   └── production.mdp
+│
+├── 2_system/
+│   ├── system.gro
+│   ├── protein_cg.pdb
+│   └── cleaned/input structures
+│
+├── 3_short_md/          # present after Short MD
+│   ├── TPR / GRO / XTC
+│   ├── EDR / CPT
+│   ├── logs
+│   └── analyses
+│
+├── metadata/
+│   ├── manifest.json
+│   └── build.log
+│
+└── README.txt
+```
+
+The packaged `system.top` is rewritten so local includes point correctly to `0_topology/system_itp/`, making the extracted package self-contained for continued GROMACS work.
+
+---
+
+## Local installation
+
+The hosted Streamlit app is the easiest way to use MartiniSolv, but the project can also run locally or on an HPC system.
+
+### Conda / Mamba
 
 ```bash
 mamba env create -f conda/environment.yml
@@ -14,44 +236,152 @@ conda activate martini-solv
 streamlit run app.py
 ```
 
-Download [1UBQ from RCSB](https://files.rcsb.org/download/1UBQ.pdb), save it as `1ubq.pdb`, then use the upload control or the CLI:
+The environment includes the main external tools used by the workflow:
+
+- GROMACS
+- martinize2 / vermouth
+- INSANE
+- Packmol
+- MDTraj
+- RDKit
+- Martini Mapper
+
+---
+
+## Command-line use
+
+MartiniSolv also exposes the headless builder through the CLI.
+
+Example with water:
 
 ```bash
-python -m martini_solv.cli --pdb 1ubq.pdb --out builds/ubiquitin --solvent water --salt 0.15 --box-distance 1.2
+python -m martini_solv.cli \
+  --pdb 1ubq.pdb \
+  --out builds/ubiquitin \
+  --solvent water \
+  --salt 0.15 \
+  --box-distance 1.0
 ```
 
-For reline (ChCl:urea 1:2) at requested water mole fraction 0.10:
+Example with wet Reline:
 
 ```bash
-python -m martini_solv.cli --pdb 1ubq.pdb --out builds/ubiquitin_reline --solvent reline --salt 0 --water-fraction 0.10
+python -m martini_solv.cli \
+  --pdb 1ubq.pdb \
+  --out builds/ubiquitin_reline \
+  --solvent reline \
+  --salt 0 \
+  --water-fraction 0.10
 ```
 
-The Streamlit workflow follows **Structure → Model → Environment → Review & Build → Short MD**. In Environment, the free-molecule generator accepts SMILES, a molecule name and a copy count. It shows a 2D structure, calls Martini Mapper and previews generated CG beads. Multiple species can be added or removed. There are no anchor, linker, surface or orientation controls. The CLI accepts `--solute NAME:SMILES:COUNT` multiple times. The environment installs [Martini Mapper](https://github.com/eliobaby/Martini_Mapper) from the same source used by [MartiniSurf](https://github.com/jjimenezgar/MartiniSurf/blob/master/requirements.txt). The builder assigns each generated `[ moleculetype ]` a unique user name so multiple species can coexist. Only neutral additional molecules are currently accepted. A generated topology must be scientifically reviewed for chemical accuracy and applicability to the chosen solvent. The core verifies its `.gro`/`.itp` outputs and fails explicitly if unavailable.
+---
 
-## Solvent models and limitations
+## Reproducibility
 
-The builder retrieves Martini 3 force-field files from the [official force-fields repository](https://github.com/marrink-lab/martini-forcefields) and the published [Vainikka et al. DES models](https://github.com/vainikanpete/martini3-DES-models), each at an immutable Git commit recorded in `martini_solv/builder.py` and every build's `manifest.json`. Model files retain their authorship and original licenses. The ChCl and urea models are associated with [Vainikka et al., ACS Sustainable Chemistry & Engineering (2021)](https://doi.org/10.1021/acssuschemeng.1c06521). The published DES repository is Apache-2.0 licensed.
+Each build records:
 
-For reline, the program requests one `CHOL`, one `CL`, and two `UREA` molecules per formula unit. The requested `x_H2O` counts **real water molecules**; a Martini W bead represents four waters. The actual fraction after integer rounding is saved. Packmol places the DES mixture jointly around the fixed protein. `des_pairs_per_nm3` is currently an initial packing target, **not** a density validated for each temperature, hydration level or protein. If packing fails, enlarge the box or adjust the target density. Water fraction beyond published benchmarks is exploratory and must be validated by the user. Added NaCl is supported only for the water path. For the DES path, only an electrically neutral protein is currently supported until ion accounting is extended.
+- exact user configuration
+- solvent composition
+- protein net charge
+- free-molecule charge metadata
+- requested free-molecule copy counts
+- generated composition
+- pinned upstream model sources
+- `martinize2` command
+- build log
+- GROMACS validation status
 
-Input PDBs must already have a sensible backbone and chain assignment. The original PDB is retained, while a protein-only copy excludes crystallographic waters and ligands and selects the first model/alternate A atoms for martinize2. The current build does not repair missing loops or guarantee chirality. The Streamlit Model step exposes the same core protein-model decisions used in MartiniSurf—chain merging, DSSP, GōMartini/Go epsilon, position restraints and optional elastic-network controls—whose appropriateness should be checked for the target protein. Results are prepared for *subsequent minimization and equilibration*, not ready for immediate production simulation.
+The main implementation is separated into reusable modules:
 
-## Layout and reproducibility
+```text
+app.py
+└── Streamlit interface
 
-- `app.py`: Streamlit presentation; no molecular logic.
-- `martini_solv/models.py`: validated settings and solvent stoichiometry.
-- `martini_solv/builder.py`: headless tool orchestration, exact counts, topologies, GROMACS check.
-- `martini_solv/cli.py`: same builder on a workstation or HPC login node.
-- `tests/`: quick validation of composition and parameters (`python -m unittest discover -s tests -v`).
+martini_solv/
+├── models.py
+│   └── validated configuration and solvent composition
+├── builder.py
+│   └── system generation and GROMACS orchestration
+├── molecular_viewer.py
+│   └── structure and trajectory visualization
+├── short_md.py
+│   └── validation MD and analysis
+└── cli.py
+    └── command-line interface
 
-Each build writes its input PDB, actual settings, pinned upstream URLs and `build.log`. A failed build remains in a `.incomplete` folder for diagnosis. The optional Short MD page now mirrors the MartiniSurf interaction pattern: minimization followed by configurable NVT, NPT and a short Production stage. The three MD stages expose timestep and duration controls, XTC output frequency, GROMPP warning tolerance and up to four CPU threads. Completed XTC trajectories can be animated directly in the Streamlit page and all logs, MDPs, trajectories and final structures are included in the download. This remains a bounded validation workflow; the short Production stage is not a claim of a converged production simulation. The Streamlit process currently runs jobs synchronously; deploy it on a machine with enough CPU/memory for larger systems.
+tests/
+└── regression and scientific consistency checks
+```
 
-The project deliberately excludes surfaces, immobilization, linkers and deposition. It includes only a deliberately short configurable Production stage for visual/technical validation after NVT/NPT; longer scientific production simulations remain the user's responsibility. This project extracts a small, self-contained protein-preparation workflow inspired by MartiniSurf and reimplements the orchestration layer without its surface workflow.
+---
 
-## Test status
+## Scientific models
 
-The pure-Python tests are runnable without GROMACS. GitHub Actions creates the Conda environment, tests Martini Mapper output, starts Streamlit, and builds 1UBQ in water, hydrated reline, and water with two different SMILES-derived solutes. A separate job checks the Cloud-style apt/pip dependencies and a water build. All system builds must pass `gmx grompp` with zero warnings. Consult the build log and inspect structures before using generated files for scientific work.
+MartiniSolv retrieves Martini 3 force-field files from the official [Martini force-field repository](https://github.com/marrink-lab/martini-forcefields).
 
-### Streamlit Community Cloud
+Reline components use the published Martini 3 DES models from [Vainikka et al.](https://github.com/vainikanpete/martini3-DES-models):
 
-Select `app.py`, the `main` branch and **Python 3.12**. Community Cloud installs root `requirements.txt` with pip and root `packages.txt` with apt; the Conda recipe resides in `conda/` for local/HPC use and does not trigger Cloud's slower Conda solver. Builds download the model files from pinned public GitHub commits, so outgoing internet access is required. Community Cloud has finite resources and may interrupt costly preparation jobs; this first version runs builds synchronously, so a self-hosted Streamlit service or background worker is preferable for larger proteins or dense DES boxes. A green UI or passing Python CI does not mean a scientific build has succeeded.
+> Vainikka et al., *ACS Sustainable Chemistry & Engineering* (2021)  
+> [https://doi.org/10.1021/acssuschemeng.1c06521](https://doi.org/10.1021/acssuschemeng.1c06521)
+
+The ChCl:sorbitol implementation uses the ChCl Martini model together with the three-bead Martini 3 sorbitol model included in this project.
+
+Upstream files are pinned to immutable revisions in the builder for reproducibility.
+
+---
+
+## Scope
+
+MartiniSolv is intended to automate **system preparation and technical validation**.
+
+It does not claim that generated systems are automatically scientifically validated for every molecule, solvent composition, temperature or research question.
+
+Users should review:
+
+- molecular mappings
+- bead types
+- manually assigned charges
+- solvent composition
+- equilibration protocol
+- production MD settings
+
+before using generated systems for scientific conclusions.
+
+---
+
+## Relationship to MartiniSurf
+
+[MartiniSurf](https://github.com/jjimenezgar/MartiniSurf) focuses on biomolecular systems interacting with surfaces and immobilization environments.
+
+**MartiniSolv** intentionally removes that complexity and focuses on proteins and dissolved molecules in bulk solution.
+
+```text
+MartiniSurf  → surfaces · linkers · immobilization
+MartiniSolv  → proteins · solvents · free molecules
+```
+
+---
+
+## Development
+
+Run the lightweight regression suite with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions also checks Python compilation and the repository's automated tests.
+
+---
+
+<div align="center">
+
+### MartiniSolv
+
+**Protein systems in solution · Martini 3**
+
+[Launch app](https://martinisolv.streamlit.app/) · [GitHub profile](https://github.com/jjimenezgar) · [MartiniSurf](https://github.com/jjimenezgar/MartiniSurf)
+
+Developed by **Juan Carlos Jiménez-García**
+
+</div>
