@@ -10,7 +10,7 @@ import urllib.request
 
 import streamlit as st
 
-from martini_solv.builder import _map_solute, build
+from martini_solv.builder import _itp_net_charge, _map_solute, _prepare_uploaded_solute, build
 from martini_solv.models import BuildConfig, Solute
 from martini_solv.molecular_viewer import render_build_viewer, render_free_molecule_mapping, render_structure_preview, render_trajectory
 from martini_solv.short_md import (
@@ -233,9 +233,32 @@ def _solute_charge_state(row: dict[str, object]) -> tuple[int, int | None]:
     return charge, (int(bead) if bead is not None else None)
 
 
+def _itp_bead_charges(path: Path) -> dict[int, float]:
+    """Read per-bead charges from an ITP [ atoms ] section."""
+    rows: dict[int, float] = {}
+    if not path.is_file():
+        return rows
+    section = ""
+    for raw in path.read_text(errors="replace").splitlines():
+        line = raw.split(";", 1)[0].strip()
+        if line.startswith("[") and "]" in line:
+            section = line.strip("[]").strip().lower()
+            continue
+        if section != "atoms" or not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        try:
+            rows[int(parts[0])] = float(parts[6])
+        except ValueError:
+            continue
+    return rows
+
+
 def _solute_generator() -> None:
     with st.expander("Free molecule generator · SMILES", expanded=True):
-        st.caption("Add freely dissolved Martini 3 molecules. No linker, anchor or orientation logic is used.")
+        st.caption("Generate a freely dissolved Martini 3 molecule from a neutral SMILES.")
         left, middle, right = st.columns([2.0, 0.8, 0.65])
         smiles = left.text_input(
             "SMILES", key=_prime_widget("new_smiles"), placeholder="CCO",
@@ -266,19 +289,28 @@ def _solute_generator() -> None:
                     root = Path(tempfile.mkdtemp(prefix="martinisolv_mapper_"))
                     gro, itp = _map_solute(root, species.name, species.smiles, root / "mapper.log")
                 st.session_state.solutes.append(
-                    {"name": species.name, "smiles": species.smiles, "count": species.count,
-                     "net_charge": 0, "charged_bead": None,
-                     "gro": str(gro), "itp": str(itp)}
+                    {
+                        "name": species.name,
+                        "smiles": species.smiles,
+                        "count": species.count,
+                        "net_charge": 0,
+                        "charged_bead": None,
+                        "source": "smiles",
+                        "template_itp": "",
+                        "gro": str(gro),
+                        "itp": str(itp),
+                    }
                 )
                 _invalidate_build_outputs()
                 st.success(f"{species.name}: Martini Mapper generated the coarse-grained model.")
             except (ValueError, RuntimeError, OSError) as exc:
                 st.error(str(exc))
 
-    with st.expander("Free molecule · Upload Martini ITP", expanded=False):
+    with st.expander("Free molecule · Upload Martini topology", expanded=False):
         st.caption(
-            "Already have a Martini topology? Upload a single .itp file. "
-            "MartiniSolv will generate a starting .gro template from its beads and connectivity."
+            "Already have a Martini model? Upload only its .itp topology. "
+            "MartiniSolv reconstructs a starting .gro geometry from [ atoms ] plus "
+            "[ bonds ]/[ constraints ], then inserts the requested number of copies."
         )
         up_left, up_mid, up_right = st.columns([1.35, 1.0, 0.65])
         uploaded_itp = up_left.file_uploader(
@@ -301,26 +333,33 @@ def _solute_generator() -> None:
             on_change=_store_widget,
             args=("upload_copies",),
         )
+
+        source_itp = None
         if uploaded_itp is not None:
             try:
                 root = Path(tempfile.mkdtemp(prefix="martinisolv_upload_"))
                 source_itp = root / Path(uploaded_itp.name).name
                 source_itp.write_bytes(uploaded_itp.getvalue())
                 bead_types = _itp_bead_types(source_itp)
-                st.caption(f"Detected {len(bead_types)} Martini bead(s) in [ atoms ].")
+                topology_charge = _itp_net_charge(source_itp)
+                info_a, info_b = st.columns(2)
+                info_a.metric("Detected beads", len(bead_types))
+                info_b.metric("Topology charge", f"{topology_charge:+.2f} e")
+                if abs(topology_charge - round(topology_charge)) > 0.01:
+                    st.warning(
+                        "The uploaded topology has a non-integer net charge. "
+                        "Automatic counterion neutralization requires an approximately integer molecular charge."
+                    )
             except Exception as exc:
                 st.warning(f"Could not inspect uploaded ITP: {exc}")
                 source_itp = None
-        else:
-            source_itp = None
 
         if st.button("Add uploaded molecule", use_container_width=True):
             try:
                 if source_itp is None:
                     raise ValueError("Upload a Martini .itp file first")
-                name = str(upload_name).strip()
                 species = Solute(
-                    name=name,
+                    name=str(upload_name).strip(),
                     smiles="",
                     count=int(upload_copies),
                     source="upload",
@@ -329,9 +368,11 @@ def _solute_generator() -> None:
                 species.validate()
                 if any(row["name"].upper() == species.name.upper() for row in st.session_state.solutes):
                     raise ValueError("Choose a unique molecule name")
+
                 preview_root = Path(tempfile.mkdtemp(prefix="martinisolv_uploaded_preview_"))
-                from martini_solv.builder import _prepare_uploaded_solute
-                gro, itp = _prepare_uploaded_solute(preview_root, species.name, source_itp)
+                gro, itp = _prepare_uploaded_solute(
+                    preview_root, species.name, source_itp
+                )
                 st.session_state.solutes.append(
                     {
                         "name": species.name,
@@ -347,111 +388,154 @@ def _solute_generator() -> None:
                 )
                 _invalidate_build_outputs()
                 st.success(
-                    f"{species.name}: uploaded Martini topology added and a starting GRO template was generated."
+                    f"{species.name}: topology added and a starting GRO template was generated automatically."
                 )
             except (ValueError, RuntimeError, OSError) as exc:
                 st.error(str(exc))
 
-        for index, row in enumerate(list(st.session_state.solutes)):
-            with st.container(border=True):
-                title, action = st.columns([3, 0.6])
-                row_charge, row_charged_bead = _solute_charge_state(row)
+        st.caption(
+            "ITP-only reconstruction is intended for small connected Martini molecules. "
+            "If the topology does not contain enough connectivity to place the beads safely, "
+            "MartiniSolv stops and asks for a more complete topology instead of guessing."
+        )
+
+    for index, row in enumerate(list(st.session_state.solutes)):
+        with st.container(border=True):
+            title, action = st.columns([3, 0.6])
+            source = str(row.get("source", "smiles"))
+            preview_itp = Path(row["itp"])
+            if source == "upload":
+                actual_charge = _itp_net_charge(preview_itp) if preview_itp.is_file() else 0.0
+                source_label = f"Uploaded ITP · topology charge {actual_charge:+.2f} e"
+                charge_text = f"{actual_charge:+.2f}"
+            else:
+                row_charge, _ = _solute_charge_state(row)
                 charge_text = f"{row_charge:+d}" if row_charge else "0"
-                source_label = "Uploaded ITP" if row.get("source") == "upload" else f"`{row['smiles']}`"
-                title.markdown(
-                    f"**{row['name']}** · {row['count']} copies · charge {charge_text} · {source_label}"
-                )
-                if action.button("Remove", key=f"remove_{index}", use_container_width=True):
-                    st.session_state.solutes.pop(index)
-                    _invalidate_build_outputs()
-                    st.rerun()
+                source_label = f"`{row['smiles']}`"
 
-                gro = Path(row["gro"])
-                itp = Path(row["itp"])
-                if gro.is_file():
-                    with st.expander(f"Martini topology preview · {row['name']}", expanded=True):
-                        preview_col, beads_col = st.columns([1.35, 1], gap="large")
-                        with preview_col:
-                            bead_rows = render_free_molecule_mapping(gro, height=360)
-                            st.caption(
-                                "Generated coarse-grained topology. Bead labels start at 1, "
-                                "matching the topology table."
-                            )
-                        with beads_col:
-                            bead_types = _itp_bead_types(itp)
-                            bead_options = sorted(bead_types)
-                            st.markdown("##### Charge assignment")
-                            charge_key = f"solute_charge_{index}"
-                            if charge_key not in st.session_state:
-                                st.session_state[charge_key] = int(row.get("net_charge", 0) or 0)
-                            chosen_charge = st.select_slider(
-                                "Net charge",
-                                options=[-2, -1, 0, 1, 2],
-                                key=charge_key,
-                                help="Applied after neutral-SMILES mapping. Default is 0.",
-                            )
-                            chosen_bead = None
-                            if chosen_charge != 0 and bead_options:
-                                bead_key = f"solute_charged_bead_{index}"
-                                existing_bead = row.get("charged_bead")
-                                if bead_key not in st.session_state:
-                                    st.session_state[bead_key] = (
-                                        int(existing_bead) if existing_bead in bead_options else bead_options[0]
-                                    )
-                                chosen_bead = st.selectbox(
-                                    "Charged bead",
-                                    bead_options,
-                                    key=bead_key,
-                                    format_func=lambda value: f"{value}: {bead_types.get(value, 'bead')}",
-                                    help="The selected bead receives the integer molecular charge in the generated ITP.",
+            title.markdown(
+                f"**{row['name']}** · {row['count']} copies · charge {charge_text} · {source_label}"
+            )
+            if action.button("Remove", key=f"remove_{index}", use_container_width=True):
+                st.session_state.solutes.pop(index)
+                _invalidate_build_outputs()
+                st.rerun()
+
+            gro = Path(row["gro"])
+            itp = Path(row["itp"])
+            if not gro.is_file():
+                continue
+
+            with st.expander(f"Martini topology preview · {row['name']}", expanded=True):
+                preview_col, beads_col = st.columns([1.35, 1], gap="large")
+                with preview_col:
+                    bead_rows = render_free_molecule_mapping(gro, height=360)
+                    if source == "upload":
+                        st.caption(
+                            "Starting geometry reconstructed automatically from the uploaded ITP. "
+                            "The build minimization will relax this template."
+                        )
+                    else:
+                        st.caption(
+                            "Generated coarse-grained topology. Bead labels start at 1, "
+                            "matching the topology table."
+                        )
+
+                with beads_col:
+                    bead_types = _itp_bead_types(itp)
+                    bead_charges = _itp_bead_charges(itp)
+                    bead_options = sorted(bead_types)
+
+                    if source == "upload":
+                        chosen_charge = None
+                        chosen_bead = None
+                        st.markdown("##### Topology charge")
+                        st.metric("Net charge from uploaded ITP", f"{_itp_net_charge(itp):+.2f} e")
+                        st.caption(
+                            "Charges already present in the uploaded topology are preserved and "
+                            "used automatically when MartiniSolv calculates Na⁺/Cl⁻ counterions."
+                        )
+                    else:
+                        st.markdown("##### Charge assignment")
+                        charge_key = f"solute_charge_{index}"
+                        if charge_key not in st.session_state:
+                            st.session_state[charge_key] = int(row.get("net_charge", 0) or 0)
+                        chosen_charge = st.select_slider(
+                            "Net charge",
+                            options=[-2, -1, 0, 1, 2],
+                            key=charge_key,
+                            help="Applied after neutral-SMILES mapping. Default is 0.",
+                        )
+                        chosen_bead = None
+                        if chosen_charge != 0 and bead_options:
+                            bead_key = f"solute_charged_bead_{index}"
+                            existing_bead = row.get("charged_bead")
+                            if bead_key not in st.session_state:
+                                st.session_state[bead_key] = (
+                                    int(existing_bead) if existing_bead in bead_options else bead_options[0]
                                 )
-                                st.caption(
-                                    "Manual charge assignment changes the ITP charge column only; "
-                                    "the Martini bead type assigned by Martini Mapper is preserved."
-                                )
-                            if int(row.get("net_charge", 0) or 0) != int(chosen_charge) or row.get("charged_bead") != chosen_bead:
-                                st.session_state.solutes[index]["net_charge"] = int(chosen_charge)
-                                st.session_state.solutes[index]["charged_bead"] = chosen_bead
-                                _invalidate_build_outputs()
-
-                            table = []
-                            for bead_index, bead in enumerate(bead_rows, start=1):
-                                table.append({
-                                    "Bead": bead["Bead"],
-                                    "Martini type": bead_types.get(bead_index, "—"),
-                                    "Charge": (
-                                        int(chosen_charge)
-                                        if chosen_charge != 0 and bead_index == chosen_bead
-                                        else 0
-                                    ),
-                                    "Residue": bead["Residue"],
-                                    "x (nm)": bead["x (nm)"],
-                                    "y (nm)": bead["y (nm)"],
-                                    "z (nm)": bead["z (nm)"],
-                                })
-
-                            if table:
-                                st.markdown("##### Bead mapping")
-                                st.table(table)
-                            elif bead_types:
-                                st.markdown("##### Bead mapping")
-                                st.table([
-                                    {
-                                        "Bead": bead_index,
-                                        "Martini type": bead_type,
-                                        "Charge": (
-                                            int(chosen_charge)
-                                            if chosen_charge != 0 and bead_index == chosen_bead
-                                            else 0
-                                        ),
-                                    }
-                                    for bead_index, bead_type in sorted(bead_types.items())
-                                ])
-                            st.caption(
-                                "This is the Martini topology that will be inserted as a free molecule "
-                                "in the simulation box."
+                            chosen_bead = st.selectbox(
+                                "Charged bead",
+                                bead_options,
+                                key=bead_key,
+                                format_func=lambda value: f"{value}: {bead_types.get(value, 'bead')}",
+                                help="The selected bead receives the integer molecular charge in the generated ITP.",
                             )
+                            st.caption(
+                                "Manual charge assignment changes the ITP charge column only; "
+                                "the Martini bead type assigned by Martini Mapper is preserved."
+                            )
+                        if (
+                            int(row.get("net_charge", 0) or 0) != int(chosen_charge)
+                            or row.get("charged_bead") != chosen_bead
+                        ):
+                            st.session_state.solutes[index]["net_charge"] = int(chosen_charge)
+                            st.session_state.solutes[index]["charged_bead"] = chosen_bead
+                            _invalidate_build_outputs()
 
+                    table = []
+                    for bead_index, bead in enumerate(bead_rows, start=1):
+                        if source == "upload":
+                            displayed_charge = bead_charges.get(bead_index, 0.0)
+                        else:
+                            displayed_charge = (
+                                int(chosen_charge)
+                                if chosen_charge != 0 and bead_index == chosen_bead
+                                else 0
+                            )
+                        table.append({
+                            "Bead": bead["Bead"],
+                            "Martini type": bead_types.get(bead_index, "—"),
+                            "Charge": displayed_charge,
+                            "Residue": bead["Residue"],
+                            "x (nm)": bead["x (nm)"],
+                            "y (nm)": bead["y (nm)"],
+                            "z (nm)": bead["z (nm)"],
+                        })
+
+                    if table:
+                        st.markdown("##### Bead mapping")
+                        st.table(table)
+                    elif bead_types:
+                        st.markdown("##### Bead mapping")
+                        st.table([
+                            {
+                                "Bead": bead_index,
+                                "Martini type": bead_type,
+                                "Charge": bead_charges.get(bead_index, 0.0)
+                                if source == "upload"
+                                else (
+                                    int(chosen_charge)
+                                    if chosen_charge != 0 and bead_index == chosen_bead
+                                    else 0
+                                ),
+                            }
+                            for bead_index, bead_type in sorted(bead_types.items())
+                        ])
+                    st.caption(
+                        "This Martini topology will be inserted as a free molecule "
+                        "in the simulation box."
+                    )
 
 def _chain_labels() -> list[str]:
     pdb = st.session_state.get("pdb_bytes")
