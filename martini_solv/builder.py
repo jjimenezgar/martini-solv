@@ -739,14 +739,25 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
                 gro, itp = _prepare_uploaded_solute(
                     work, spec.name, Path(spec.template_itp)
                 )
+                if spec.charged_bead is not None:
+                    _assign_itp_net_charge(itp, spec.net_charge, spec.charged_bead)
             else:
                 gro, itp = _map_solute(work, spec.name, spec.smiles, log)
-            _assign_itp_net_charge(itp, spec.net_charge, spec.charged_bead)
+                _assign_itp_net_charge(itp, spec.net_charge, spec.charged_bead)
             templates.append((spec, gro, itp))
         current = work / "boxed.gro"
         species = [(_molecule_type(itp), spec.count) for spec, _, itp in templates]
-        free_molecule_charge = sum(int(spec.net_charge) * int(spec.count) for spec, _, _ in templates)
-        total_non_solvent_charge = rounded_protein_charge + free_molecule_charge
+        free_molecule_charge = sum(
+            _itp_net_charge(itp) * int(spec.count)
+            for spec, _, itp in templates
+        )
+        rounded_free_molecule_charge = int(round(free_molecule_charge))
+        if abs(free_molecule_charge - rounded_free_molecule_charge) > 0.01:
+            raise ValueError(
+                f"Total free-molecule charge {free_molecule_charge:.3f} is not close to an integer; "
+                "automatic counterion neutralization would be ambiguous"
+            )
+        total_non_solvent_charge = rounded_protein_charge + rounded_free_molecule_charge
         composition = {
             "protein_net_charge": protein_charge,
             "free_molecule_net_charge": free_molecule_charge,
@@ -855,7 +866,13 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
                           ),
                           "source": spec.source,
                           "smiles": spec.smiles,
-                          "net_charge": spec.net_charge,
+                          "net_charge": _itp_net_charge(
+                              next(
+                                  itp
+                                  for candidate, _gro, itp in templates
+                                  if candidate.name == spec.name
+                              )
+                          ),
                           "charged_bead": spec.charged_bead,
                       }
                       for spec in config.solutes
