@@ -294,8 +294,16 @@ def _solute_generator() -> None:
                                     "y (nm)": bead["y (nm)"],
                                     "z (nm)": bead["z (nm)"],
                                 })
-                            st.markdown("##### Bead mapping")
-                            st.table(table)
+
+                            if table:
+                                st.markdown("##### Bead mapping")
+                                st.table(table)
+                            elif bead_types:
+                                st.markdown("##### Bead mapping")
+                                st.table([
+                                    {"Bead": index, "Martini type": bead_type}
+                                    for index, bead_type in sorted(bead_types.items())
+                                ])
                             st.caption(
                                 "This is the Martini topology that will be inserted as a free molecule "
                                 "in the simulation box."
