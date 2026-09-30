@@ -2,8 +2,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from martini_solv.builder import _clean_protein_pdb, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved, _verify_reline_composition
-from martini_solv.models import BuildConfig, chcl_sorbitol_counts, reline_counts
+from martini_solv.builder import _assign_itp_net_charge, _clean_protein_pdb, _itp_net_charge, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved, _verify_reline_composition
+from martini_solv.models import BuildConfig, Solute, chcl_sorbitol_counts, reline_counts
 
 
 class TestModels(unittest.TestCase):
@@ -206,3 +206,42 @@ class TestModels(unittest.TestCase):
             water_fraction=0.10,
             chcl_sorbitol_density_g_cm3=1.20,
         ).validate()
+
+
+    def test_manual_free_molecule_charge_assignment(self):
+        with TemporaryDirectory() as directory:
+            itp = Path(directory) / "AMP.itp"
+            itp.write_text(
+                "[ moleculetype ]\nAMP 1\n\n"
+                "[ atoms ]\n"
+                "1 P4 1 AMP B1 1 0.0 72.0\n"
+                "2 P4 1 AMP B2 2 0.0 72.0\n"
+                "3 P4 1 AMP B3 3 0.0 72.0\n"
+            )
+            _assign_itp_net_charge(itp, 1, 3)
+            self.assertAlmostEqual(_itp_net_charge(itp), 1.0)
+            atom_lines = [
+                line.split()
+                for line in itp.read_text().splitlines()
+                if line.strip() and line.strip()[0].isdigit()
+            ]
+            self.assertEqual(float(atom_lines[2][6]), 1.0)
+
+    def test_negative_free_molecule_charge_assignment(self):
+        with TemporaryDirectory() as directory:
+            itp = Path(directory) / "LIG.itp"
+            itp.write_text(
+                "[ moleculetype ]\nLIG 1\n\n"
+                "[ atoms ]\n"
+                "1 P4 1 LIG B1 1 0.0 72.0\n"
+                "2 P4 1 LIG B2 2 0.0 72.0\n"
+            )
+            _assign_itp_net_charge(itp, -1, 1)
+            self.assertAlmostEqual(_itp_net_charge(itp), -1.0)
+
+    def test_solute_charge_requires_bead(self):
+        with self.assertRaisesRegex(ValueError, "Choose which Martini bead"):
+            Solute("AMP", "CCO", 1, 1, None).validate()
+
+    def test_neutral_solute_charge_defaults(self):
+        Solute("AMP", "CCO", 1).validate()
