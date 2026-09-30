@@ -547,6 +547,11 @@ def _render_stage_analysis(selected: dict[str, object]) -> None:
         )
 
 
+def _go_to_structure() -> None:
+    """Navigate from Home before Streamlit instantiates the sidebar radio."""
+    st.session_state["active_step"] = "Structure"
+
+
 def _reset_build() -> None:
     result = st.session_state.get("result_dir")
     if result:
@@ -636,9 +641,12 @@ if step == "Home":
         )
 
     st.markdown("")
-    if st.button("Start a MartiniSolv project", type="primary", use_container_width=True):
-        st.session_state.active_step = "Structure"
-        st.rerun()
+    st.button(
+        "Start a MartiniSolv project",
+        type="primary",
+        use_container_width=True,
+        on_click=_go_to_structure,
+    )
 
 elif step == "Structure":
     left, right = st.columns([0.9, 1.1], gap="large")
