@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from martini_solv.builder import _assign_itp_net_charge, _clean_protein_pdb, _itp_net_charge, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved, _verify_reline_composition
+from martini_solv.builder import _assign_itp_net_charge, _clean_protein_pdb, _itp_net_charge, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved, _verify_free_molecule_topology_counts, _verify_reline_composition
 from martini_solv.models import BuildConfig, Solute, chcl_sorbitol_counts, reline_counts
 
 
@@ -248,3 +248,47 @@ class TestModels(unittest.TestCase):
         solute = Solute("AMP", "CCO", 3, 1, 2)
         self.assertEqual(solute.net_charge, 1)
         self.assertEqual(solute.charged_bead, 2)
+
+
+    def test_free_molecule_copy_count_is_verified_in_system_top(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            gro = root / "AMP.gro"
+            gro.write_text(
+                "AMP\n2\n"
+                "    1AMP    B1    1   0.100   0.100   0.100\n"
+                "    1AMP    B2    2   0.200   0.100   0.100\n"
+                "   1.00000   1.00000   1.00000\n"
+            )
+            itp = root / "AMP.itp"
+            itp.write_text(
+                "[ moleculetype ]\nAMP 1\n\n"
+                "[ atoms ]\n1 P4 1 AMP B1 1 0.0 72.0\n2 P4 1 AMP B2 2 0.0 72.0\n"
+            )
+            top = root / "system.top"
+            top.write_text("[ molecules ]\nProtein 1\nAMP 5\n")
+            spec = Solute("AMP", "CCO", 5)
+            rows = _verify_free_molecule_topology_counts(top, [(spec, gro, itp)])
+            self.assertEqual(rows[0]["requested"], 5)
+            self.assertEqual(rows[0]["included"], 5)
+            self.assertEqual(rows[0]["beads_per_molecule"], 2)
+
+    def test_free_molecule_copy_count_mismatch_fails(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            gro = root / "AMP.gro"
+            gro.write_text(
+                "AMP\n1\n"
+                "    1AMP    B1    1   0.100   0.100   0.100\n"
+                "   1.00000   1.00000   1.00000\n"
+            )
+            itp = root / "AMP.itp"
+            itp.write_text(
+                "[ moleculetype ]\nAMP 1\n\n"
+                "[ atoms ]\n1 P4 1 AMP B1 1 0.0 72.0\n"
+            )
+            top = root / "system.top"
+            top.write_text("[ molecules ]\nProtein 1\nAMP 1\n")
+            spec = Solute("AMP", "CCO", 5)
+            with self.assertRaisesRegex(RuntimeError, "requested 5 copies"):
+                _verify_free_molecule_topology_counts(top, [(spec, gro, itp)])
