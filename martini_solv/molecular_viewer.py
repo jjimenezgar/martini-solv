@@ -48,6 +48,7 @@ def render_structure_preview(pdb_text: str, height: int = 430) -> None:
 
 
 def _parse_gro_atoms(path: Path) -> list[dict[str, float | int | str]]:
+    """Parse standard GRO plus the more compact GRO formatting emitted by some mappers."""
     lines = path.read_text(errors="replace").splitlines()
     atoms: list[dict[str, float | int | str]] = []
     if len(lines) < 3:
@@ -56,20 +57,48 @@ def _parse_gro_atoms(path: Path) -> list[dict[str, float | int | str]]:
         count = int(lines[1].strip())
     except ValueError:
         return atoms
-    for raw in lines[2:2 + count]:
-        if len(raw) < 44:
+
+    for index, raw in enumerate(lines[2:2 + count], start=1):
+        # Standard fixed-width GRO formatting.
+        if len(raw) >= 44:
+            try:
+                atoms.append({
+                    "serial": int(raw[15:20]),
+                    "resid": int(raw[0:5]),
+                    "resn": raw[5:10].strip(),
+                    "name": raw[10:15].strip(),
+                    "x": float(raw[20:28]),
+                    "y": float(raw[28:36]),
+                    "z": float(raw[36:44]),
+                })
+                continue
+            except ValueError:
+                pass
+
+        # Martini Mapper can emit compact whitespace-delimited GRO records.
+        # Parse coordinates from the right and recover residue/name/serial
+        # without requiring exact fixed-width alignment.
+        parts = raw.split()
+        if len(parts) < 6:
             continue
         try:
+            x, y, z = map(float, parts[-3:])
+            serial = int(parts[-4])
+            name = parts[-5]
+            residue_token = "".join(parts[:-5]) or "1MOL"
+            match = re.match(r"^(\d+)(.*)$", residue_token)
+            resid = int(match.group(1)) if match else 1
+            resn = (match.group(2) if match and match.group(2) else "MOL").strip()
             atoms.append({
-                "serial": int(raw[15:20]),
-                "resid": int(raw[0:5]),
-                "resn": raw[5:10].strip(),
-                "name": raw[10:15].strip(),
-                "x": float(raw[20:28]),
-                "y": float(raw[28:36]),
-                "z": float(raw[36:44]),
+                "serial": serial or index,
+                "resid": resid,
+                "resn": resn,
+                "name": name,
+                "x": x,
+                "y": y,
+                "z": z,
             })
-        except ValueError:
+        except (TypeError, ValueError):
             continue
     return atoms
 
