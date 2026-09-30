@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from martini_solv.builder import _assign_itp_net_charge, _clean_protein_pdb, _itp_net_charge, _normalize_insane_ions, _name_molecule_type, _topology, _verify_existing_coordinates_preserved, _verify_free_molecule_topology_counts, _verify_reline_composition
+from martini_solv.builder import _assign_itp_net_charge, _clean_protein_pdb, _gro_from_itp, _itp_net_charge, _normalize_insane_ions, _name_molecule_type, _prepare_uploaded_solute, _topology, _verify_existing_coordinates_preserved, _verify_free_molecule_topology_counts, _verify_reline_composition
 from martini_solv.models import BuildConfig, Solute, chcl_sorbitol_counts, reline_counts
 
 
@@ -292,3 +292,68 @@ class TestModels(unittest.TestCase):
             spec = Solute("AMP", "CCO", 5)
             with self.assertRaisesRegex(RuntimeError, "requested 5 copies"):
                 _verify_free_molecule_topology_counts(top, [(spec, gro, itp)])
+
+
+    def test_uploaded_itp_generates_gro_from_connectivity(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.itp"
+            source.write_text(
+                "[ moleculetype ]\nOLD 1\n\n"
+                "[ atoms ]\n"
+                "1 P4 1 LIG B1 1 0.0 72.0\n"
+                "2 P4 1 LIG B2 2 0.0 72.0\n"
+                "3 P4 1 LIG B3 3 0.0 72.0\n\n"
+                "[ constraints ]\n"
+                "1 2 1 0.33\n"
+                "2 3 1 0.34\n"
+            )
+            work = root / "work"
+            work.mkdir()
+            gro, itp = _prepare_uploaded_solute(work, "LIG", source)
+            self.assertTrue(gro.is_file())
+            self.assertTrue(itp.is_file())
+            self.assertEqual(int(gro.read_text().splitlines()[1]), 3)
+            self.assertIn("LIG 1", itp.read_text())
+
+    def test_uploaded_itp_preserves_existing_charge(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "charged.itp"
+            source.write_text(
+                "[ moleculetype ]\nION 1\n\n"
+                "[ atoms ]\n"
+                "1 Q1 1 ION Q1 1 1.0 72.0\n"
+            )
+            work = root / "work"
+            work.mkdir()
+            _gro, itp = _prepare_uploaded_solute(work, "ION", source)
+            self.assertAlmostEqual(_itp_net_charge(itp), 1.0)
+
+    def test_itp_only_geometry_rejects_disconnected_multibead_model(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            itp = root / "disconnected.itp"
+            itp.write_text(
+                "[ moleculetype ]\nLIG 1\n\n"
+                "[ atoms ]\n"
+                "1 P4 1 LIG B1 1 0.0 72.0\n"
+                "2 P4 1 LIG B2 2 0.0 72.0\n"
+            )
+            with self.assertRaisesRegex(ValueError, "no \[ bonds \] or \[ constraints \]"):
+                _gro_from_itp(itp, root / "LIG.gro", "LIG")
+
+    def test_uploaded_solute_requires_only_itp(self):
+        with TemporaryDirectory() as directory:
+            itp = Path(directory) / "LIG.itp"
+            itp.write_text(
+                "[ moleculetype ]\nLIG 1\n"
+                "[ atoms ]\n1 P4 1 LIG B1 1 0.0 72.0\n"
+            )
+            Solute(
+                name="LIG",
+                smiles="",
+                count=5,
+                source="upload",
+                template_itp=str(itp),
+            ).validate()

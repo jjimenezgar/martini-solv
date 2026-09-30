@@ -480,6 +480,152 @@ def _topology(
     rows += [f"{name:<16} {count}" for name, count in protein + species if count]
     (work / "system.top").write_text("\n".join(rows) + "\n")
 
+def _parse_itp_atoms(itp: Path) -> list[dict[str, object]]:
+    atoms: list[dict[str, object]] = []
+    section = ""
+    for raw in itp.read_text(errors="replace").splitlines():
+        bare = raw.split(";", 1)[0].strip()
+        if bare.startswith("[") and "]" in bare:
+            section = bare.strip("[]").strip().lower()
+            continue
+        if section != "atoms" or not bare or bare.startswith("#"):
+            continue
+        fields = bare.split()
+        if len(fields) < 7:
+            continue
+        try:
+            atom_id = int(fields[0])
+            resid = int(fields[2])
+        except ValueError:
+            continue
+        atoms.append({
+            "id": atom_id,
+            "type": fields[1],
+            "resid": resid,
+            "resname": fields[3],
+            "name": fields[4],
+        })
+    if not atoms:
+        raise ValueError(f"No [ atoms ] entries found in {itp.name}")
+    return atoms
+
+
+def _parse_itp_edges(itp: Path) -> list[tuple[int, int, float | None]]:
+    edges: list[tuple[int, int, float | None]] = []
+    section = ""
+    for raw in itp.read_text(errors="replace").splitlines():
+        bare = raw.split(";", 1)[0].strip()
+        if bare.startswith("[") and "]" in bare:
+            section = bare.strip("[]").strip().lower()
+            continue
+        if section not in {"bonds", "constraints"} or not bare or bare.startswith("#"):
+            continue
+        fields = bare.split()
+        if len(fields) < 2:
+            continue
+        try:
+            left, right = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        length = None
+        # Common GROMACS bond/constraint forms place equilibrium length after funct.
+        for candidate in fields[3:]:
+            try:
+                value = float(candidate)
+            except ValueError:
+                continue
+            if 0.15 <= value <= 1.5:
+                length = value
+                break
+        edges.append((left, right, length))
+    return edges
+
+
+def _gro_from_itp(itp: Path, destination: Path, name: str) -> Path:
+    """Generate a deterministic non-overlapping CG template from an ITP connectivity graph."""
+    atoms = _parse_itp_atoms(itp)
+    ids = {int(atom["id"]) for atom in atoms}
+    edges = _parse_itp_edges(itp)
+    adjacency: dict[int, list[tuple[int, float | None]]] = {atom_id: [] for atom_id in ids}
+    for left, right, length in edges:
+        if left in adjacency and right in adjacency:
+            adjacency[left].append((right, length))
+            adjacency[right].append((left, length))
+
+    if len(atoms) > 1 and not edges:
+        raise ValueError(
+            f"{itp.name} has multiple beads but no [ bonds ] or [ constraints ]; "
+            "a starting geometry cannot be generated safely from this ITP alone"
+        )
+
+    coords: dict[int, tuple[float, float, float]] = {}
+    root = int(atoms[0]["id"])
+    coords[root] = (0.0, 0.0, 0.0)
+    queue = [root]
+    directions = [
+        (1.0, 0.0, 0.0), (-0.5, 0.866, 0.0), (-0.5, -0.866, 0.0),
+        (0.0, 0.5, 0.866), (0.0, -0.5, 0.866), (0.0, 0.5, -0.866),
+    ]
+    placed_edges = 0
+    while queue:
+        parent = queue.pop(0)
+        px, py, pz = coords[parent]
+        children = [(child, length) for child, length in adjacency[parent] if child not in coords]
+        for offset, (child, length) in enumerate(children):
+            distance = float(length) if length is not None else 0.47
+            dx, dy, dz = directions[(placed_edges + offset) % len(directions)]
+            trial = (px + distance * dx, py + distance * dy, pz + distance * dz)
+            # Nudge if a branched/cyclic topology would place two beads too close.
+            shift = 0
+            while any(
+                sum((trial[i] - other[i]) ** 2 for i in range(3)) < 0.16 ** 2
+                for other in coords.values()
+            ):
+                shift += 1
+                trial = (trial[0], trial[1] + 0.12 * shift, trial[2] + 0.07 * shift)
+            coords[child] = trial
+            queue.append(child)
+        placed_edges += max(1, len(children))
+
+    missing = ids.difference(coords)
+    if missing:
+        raise ValueError(
+            f"{itp.name} contains disconnected beads ({', '.join(map(str, sorted(missing)))}); "
+            "a single-molecule GRO cannot be generated safely"
+        )
+
+    mins = [min(point[i] for point in coords.values()) for i in range(3)]
+    padding = 0.5
+    shifted = {
+        atom_id: tuple(value - mins[i] + padding for i, value in enumerate(point))
+        for atom_id, point in coords.items()
+    }
+    maxs = [max(point[i] for point in shifted.values()) + padding for i in range(3)]
+    atom_by_id = {int(atom["id"]): atom for atom in atoms}
+    lines = [f"{name} generated from ITP", str(len(atoms))]
+    for serial, atom_id in enumerate(sorted(atom_by_id), start=1):
+        atom = atom_by_id[atom_id]
+        x, y, z = shifted[atom_id]
+        resname = str(atom["resname"])[:5] or name[:5]
+        atom_name = str(atom["name"])[:5] or f"B{serial}"
+        resid = int(atom["resid"]) % 100000
+        lines.append(
+            f"{resid:5d}{resname:<5}{atom_name:>5}{serial:5d}"
+            f"{x:8.3f}{y:8.3f}{z:8.3f}"
+        )
+    lines.append("".join(f"{max(1.0, length):10.5f}" for length in maxs))
+    destination.write_text("\n".join(lines) + "\n")
+    return destination
+
+
+def _prepare_uploaded_solute(work: Path, name: str, source_itp: Path) -> tuple[Path, Path]:
+    destination_itp = work / f"{name}.itp"
+    _name_molecule_type(source_itp, destination_itp, name)
+    destination_gro = work / f"{name}.gro"
+    _gro_from_itp(destination_itp, destination_gro, name)
+    return destination_gro, destination_itp
+
+
 def _map_solute(work: Path, name: str, smiles: str, log: Path) -> tuple[Path, Path]:
     from rdkit import Chem
     mol = Chem.MolFromSmiles(smiles)
@@ -589,13 +735,29 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
              str(config.box_distance_nm), "-bt", "cubic"], work, log)
         templates = []
         for spec in config.solutes:
-            gro, itp = _map_solute(work, spec.name, spec.smiles, log)
-            _assign_itp_net_charge(itp, spec.net_charge, spec.charged_bead)
+            if spec.source == "upload":
+                gro, itp = _prepare_uploaded_solute(
+                    work, spec.name, Path(spec.template_itp)
+                )
+                if spec.charged_bead is not None:
+                    _assign_itp_net_charge(itp, spec.net_charge, spec.charged_bead)
+            else:
+                gro, itp = _map_solute(work, spec.name, spec.smiles, log)
+                _assign_itp_net_charge(itp, spec.net_charge, spec.charged_bead)
             templates.append((spec, gro, itp))
         current = work / "boxed.gro"
         species = [(_molecule_type(itp), spec.count) for spec, _, itp in templates]
-        free_molecule_charge = sum(int(spec.net_charge) * int(spec.count) for spec, _, _ in templates)
-        total_non_solvent_charge = rounded_protein_charge + free_molecule_charge
+        free_molecule_charge = sum(
+            _itp_net_charge(itp) * int(spec.count)
+            for spec, _, itp in templates
+        )
+        rounded_free_molecule_charge = int(round(free_molecule_charge))
+        if abs(free_molecule_charge - rounded_free_molecule_charge) > 0.01:
+            raise ValueError(
+                f"Total free-molecule charge {free_molecule_charge:.3f} is not close to an integer; "
+                "automatic counterion neutralization would be ambiguous"
+            )
+        total_non_solvent_charge = rounded_protein_charge + rounded_free_molecule_charge
         composition = {
             "protein_net_charge": protein_charge,
             "free_molecule_net_charge": free_molecule_charge,
@@ -702,8 +864,15 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
                               ),
                               0,
                           ),
+                          "source": spec.source,
                           "smiles": spec.smiles,
-                          "net_charge": spec.net_charge,
+                          "net_charge": _itp_net_charge(
+                              next(
+                                  itp
+                                  for candidate, _gro, itp in templates
+                                  if candidate.name == spec.name
+                              )
+                          ),
                           "charged_bead": spec.charged_bead,
                       }
                       for spec in config.solutes
