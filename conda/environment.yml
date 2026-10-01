@@ -8,6 +8,7 @@ dependencies:
   - streamlit
   - rdkit
   - mdtraj
+  - pdbfixer>=1.12,<2
   - pillow
   - git
   - pytest
