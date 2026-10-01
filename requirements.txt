@@ -7,3 +7,4 @@ setuptools<81
 git+https://github.com/eliobaby/Martini_Mapper.git@3fed95480a5da1c846466afbc899706bf4f60191
 
 Pillow
+pdbfixer>=1.12,<2
