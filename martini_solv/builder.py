@@ -676,7 +676,12 @@ def build(pdb: Path, output: Path, config: BuildConfig) -> Path:
     log = work / "build.log"
     try:
         shutil.copy2(pdb, work / "input.pdb")
-        _clean_protein_pdb(work / "input.pdb", work / "protein_clean.pdb")
+        from .protein_preparation import prepare_protein_pdb
+        prepare_protein_pdb(
+            work / "input.pdb",
+            work / "protein_clean.pdb",
+            work / "protein_preparation.json",
+        )
         sources = download_models(work, config.solvent in {"reline", "chcl_sorbitol"})
         if config.solvent == "chcl_sorbitol":
             (work / "sorbitol.itp").write_text(
