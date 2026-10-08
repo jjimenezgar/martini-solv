@@ -18,3 +18,10 @@ from .go_virtual_visibility import apply as _apply_go_virtual_visibility
 
 _apply_go_virtual_visibility()
 del _apply_go_virtual_visibility
+
+# Keep trajectory legend entries synchronized with components that are both
+# present in the built system and enabled in the trajectory viewer.
+from .trajectory_legend import apply as _apply_trajectory_legend
+
+_apply_trajectory_legend()
+del _apply_trajectory_legend
