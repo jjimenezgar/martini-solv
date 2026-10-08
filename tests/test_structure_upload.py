@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import io
+import unittest
 
 from martini_solv.structure_upload import (
     SUPPORTED_STRUCTURE_EXTENSIONS,
@@ -18,36 +20,35 @@ TER\nEND\n
 """
 
 
-def test_supported_structure_extensions_include_pdb_and_cif() -> None:
-    assert SUPPORTED_STRUCTURE_EXTENSIONS == ("pdb", "cif", "mmcif")
-    assert _structure_types(["pdb"]) == ["pdb", "cif", "mmcif"]
+class StructureUploadTests(unittest.TestCase):
+    def test_supported_structure_extensions_include_pdb_and_cif(self) -> None:
+        self.assertEqual(SUPPORTED_STRUCTURE_EXTENSIONS, ("pdb", "cif", "mmcif"))
+        self.assertEqual(_structure_types(["pdb"]), ["pdb", "cif", "mmcif"])
+
+    def test_pdb_upload_is_preserved_verbatim(self) -> None:
+        data = PDB_TEXT.encode("utf-8")
+        self.assertEqual(normalize_structure_bytes("protein.pdb", data), data)
+
+    @unittest.skipUnless(importlib.util.find_spec("openmm"), "OpenMM not installed in lightweight CI")
+    def test_mmcif_upload_is_converted_to_pdb(self) -> None:
+        from openmm.app import PDBFile, PDBxFile
+
+        pdb = PDBFile(io.StringIO(PDB_TEXT))
+        cif = io.StringIO()
+        PDBxFile.writeFile(pdb.topology, pdb.positions, cif, keepIds=True)
+
+        converted = normalize_structure_bytes("alphafold_model.cif", cif.getvalue().encode("utf-8"))
+        text = converted.decode("utf-8")
+
+        self.assertIn("ATOM", text)
+        self.assertIn(" ALA ", text)
+        self.assertIn(" A   1", text)
+        self.assertTrue(text.rstrip().endswith("END"))
+
+    def test_empty_cif_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "empty"):
+            normalize_structure_bytes("model.cif", b"")
 
 
-def test_pdb_upload_is_preserved_verbatim() -> None:
-    data = PDB_TEXT.encode("utf-8")
-    assert normalize_structure_bytes("protein.pdb", data) == data
-
-
-def test_mmcif_upload_is_converted_to_pdb() -> None:
-    from openmm.app import PDBFile, PDBxFile
-
-    pdb = PDBFile(io.StringIO(PDB_TEXT))
-    cif = io.StringIO()
-    PDBxFile.writeFile(pdb.topology, pdb.positions, cif, keepIds=True)
-
-    converted = normalize_structure_bytes("alphafold_model.cif", cif.getvalue().encode("utf-8"))
-    text = converted.decode("utf-8")
-
-    assert "ATOM" in text
-    assert " ALA " in text
-    assert " A   1" in text
-    assert text.rstrip().endswith("END")
-
-
-def test_empty_cif_is_rejected() -> None:
-    try:
-        normalize_structure_bytes("model.cif", b"")
-    except ValueError as exc:
-        assert "empty" in str(exc).lower()
-    else:
-        raise AssertionError("Expected an empty CIF to be rejected")
+if __name__ == "__main__":
+    unittest.main()
