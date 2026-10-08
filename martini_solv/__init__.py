@@ -33,3 +33,15 @@ from .gif_backbone_only import apply as _apply_gif_backbone_only
 
 _apply_gif_backbone_only()
 del _apply_gif_backbone_only
+
+# Accept modern protein structure uploads (PDB plus mmCIF/CIF, including
+# AlphaFold downloads) while preserving the app's existing PDB-based pipeline.
+# The package itself remains importable in lightweight environments where the
+# optional Streamlit UI dependency is not installed.
+from .structure_upload import install_streamlit_structure_upload_support as _install_structure_upload
+
+try:
+    _install_structure_upload()
+except ImportError:
+    pass
+del _install_structure_upload
