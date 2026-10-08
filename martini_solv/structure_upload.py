@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import io
 from pathlib import Path
 import tempfile
-from typing import Any, Iterable
+from typing import Any
 
 
 SUPPORTED_STRUCTURE_EXTENSIONS = ("pdb", "cif", "mmcif")
@@ -41,7 +41,7 @@ def normalize_structure_bytes(filename: str, data: bytes) -> bytes:
     except ImportError as exc:  # pragma: no cover - pdbfixer installs OpenMM in production
         raise RuntimeError("mmCIF/CIF upload support requires OpenMM.") from exc
 
-    # PDBxFile is most robust when given a real path.  The temporary input is
+    # PDBxFile is most robust when given a real path. The temporary input is
     # removed immediately after parsing; no user structure is retained.
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as handle:
         handle.write(data)
@@ -54,8 +54,16 @@ def normalize_structure_bytes(filename: str, data: bytes) -> bytes:
     output = io.StringIO()
     try:
         PDBFile.writeFile(structure.topology, structure.positions, output, keepIds=True)
-    except Exception as exc:
-        raise ValueError(f"Could not convert uploaded mmCIF/CIF structure to PDB: {exc}") from exc
+    except Exception:
+        # PDB has stricter identifier limits than mmCIF. For unusual multi-
+        # character chain/residue identifiers, let OpenMM generate safe PDB
+        # identifiers rather than rejecting an otherwise valid structure.
+        output = io.StringIO()
+        try:
+            PDBFile.writeFile(structure.topology, structure.positions, output, keepIds=False)
+        except Exception as exc:
+            raise ValueError(f"Could not convert uploaded mmCIF/CIF structure to PDB: {exc}") from exc
+
     pdb = output.getvalue().encode("utf-8")
     if not any(line.startswith((b"ATOM  ", b"HETATM")) for line in pdb.splitlines()):
         raise ValueError("The uploaded mmCIF/CIF file contains no atom records.")
@@ -64,9 +72,8 @@ def normalize_structure_bytes(filename: str, data: bytes) -> bytes:
 
 def _structure_types(existing: Any) -> list[str]:
     """Preserve existing allowed types while adding protein structure formats."""
-    values: list[str] = []
     if existing is None:
-        values = []
+        values: list[str] = []
     elif isinstance(existing, str):
         values = [existing]
     else:
@@ -105,8 +112,6 @@ class _NormalizedUpload:
         return self._data
 
     def read(self, size: int = -1) -> bytes:
-        # UploadedFile is normally read once by MartiniSolv via getvalue().
-        # This mirrors the useful read() behaviour for callers that inspect it.
         return self._data if size is None or size < 0 else self._data[:size]
 
     def __getattr__(self, name: str) -> Any:
@@ -137,7 +142,11 @@ def install_streamlit_structure_upload_support() -> None:
         if str(label).strip().lower() == "protein structure":
             kwargs["type"] = _structure_types(kwargs.get("type"))
             uploaded = current(label, *args, **kwargs)
-            return _normalize_uploaded(uploaded)
+            try:
+                return _normalize_uploaded(uploaded)
+            except (ValueError, RuntimeError) as exc:
+                st.error(str(exc))
+                return None
         return current(label, *args, **kwargs)
 
     file_uploader._martinisolv_structure_formats = True  # type: ignore[attr-defined]
