@@ -25,3 +25,11 @@ from .trajectory_legend import apply as _apply_trajectory_legend
 
 _apply_trajectory_legend()
 del _apply_trajectory_legend
+
+# Keep trajectory GIFs visually clean: show the connected protein backbone
+# without detached side-chain dots while preserving all selected non-protein
+# components and the PBC-safe coordinates from trajectory_pbc.
+from .gif_backbone_only import apply as _apply_gif_backbone_only
+
+_apply_gif_backbone_only()
+del _apply_gif_backbone_only
